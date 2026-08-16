@@ -41,6 +41,10 @@ class SettingsScreenController extends GetxController {
   final exportLocationPath = "".obs;
   final downloadingFormat = "".obs;
   final autoDownloadFavoriteSongEnabled = false.obs;
+  final qobuzEnabled = RxBool(Hive.box("AppPrefs").get("qobuzEnabled", defaultValue: false) == true);
+  final qobuzInstances = RxString((Hive.box("AppPrefs").get("qobuzInstances", defaultValue: "") as String?) ?? "");
+  final qobuzCountry = RxString((Hive.box("AppPrefs").get("qobuzCountry", defaultValue: "US") as String?) ?? "US");
+  final qobuzQuality = RxInt(_prefInt('qobuzQuality', 27));
   final isTransitionAnimationDisabled = false.obs;
   final isBottomNavBarEnabled = false.obs;
   final spotifyAutoFetchLyrics = RxBool(Hive.box("AppPrefs")
@@ -86,6 +90,55 @@ class SettingsScreenController extends GetxController {
     return "$_supportDir/Music";
   }
 
+  static int _prefInt(String key, int fallback) {
+    final value = Hive.box('AppPrefs').get(key, defaultValue: fallback);
+    return value is int ? value : fallback;
+  }
+
+  void toggleQobuzEnabled(bool val) {
+    qobuzEnabled.value = val;
+    setBox.put("qobuzEnabled", val);
+  }
+
+  void changeQobuzInstances(String val) {
+    qobuzInstances.value = val;
+    setBox.put("qobuzInstances", val);
+  }
+
+  void changeQobuzCountry(String val) {
+    qobuzCountry.value = val.toUpperCase();
+    setBox.put("qobuzCountry", qobuzCountry.value);
+  }
+
+  void changeQobuzQuality(int val) {
+    qobuzQuality.value = val;
+    setBox.put("qobuzQuality", val);
+  }
+
+  final tidalEnabled = RxBool(
+      Hive.box("AppPrefs").get("tidalEnabled", defaultValue: false) == true);
+  final tidalEndpoints = RxString((Hive.box("AppPrefs")
+          .get("tidalEndpoints", defaultValue: "") as String?) ??
+      "");
+  final tidalQuality = RxString((Hive.box("AppPrefs")
+          .get("tidalQuality", defaultValue: "LOSSLESS") as String?) ??
+      "LOSSLESS");
+
+  void toggleTidalEnabled(bool val) {
+    tidalEnabled.value = val;
+    setBox.put("tidalEnabled", val);
+  }
+
+  void changeTidalEndpoints(String val) {
+    tidalEndpoints.value = val;
+    setBox.put("tidalEndpoints", val);
+  }
+
+  void changeTidalQuality(String val) {
+    tidalQuality.value = val;
+    setBox.put("tidalQuality", val);
+  }
+
   Future<void> _setInitValue() async {
     final isDesktop = GetPlatform.isDesktop;
     final appLang = setBox.get('currentAppLanguageCode') ?? "en";
@@ -110,8 +163,12 @@ class SettingsScreenController extends GetxController {
     restorePlaybackSession.value =
         setBox.get("restrorePlaybackSession") ?? false;
     cacheHomeScreenData.value = setBox.get("cacheHomeScreenData") ?? true;
-    streamingQuality.value =
-        AudioQuality.values[setBox.get('streamingQuality')];
+    final storedQuality = setBox.get('streamingQuality');
+    streamingQuality.value = (storedQuality is int &&
+            storedQuality >= 0 &&
+            storedQuality < AudioQuality.values.length)
+        ? AudioQuality.values[storedQuality]
+        : AudioQuality.High;
     playerUi.value = isDesktop ? 0 : (setBox.get('playerUi') ?? 0);
     backgroundPlayEnabled.value = setBox.get("backgroundPlayEnabled") ?? true;
     keepScreenAwake.value =
@@ -363,6 +420,36 @@ class SettingsScreenController extends GetxController {
 
   Future<void> resetAppSettingsToDefault() async {
     await setBox.clear();
+    // Re-seed the same defaults main() would seed on a fresh install, so
+    // the persisted state stays consistent even before the next restart.
+    setBox.putAll({
+      'themeModeType': 0,
+      "cacheSongs": false,
+      "skipSilenceEnabled": false,
+      'streamingQuality': 1,
+      'themePrimaryColor': 4278199603,
+      'discoverContentType': "REC",
+      'newVersionVisibility': updateCheckFlag,
+      "cacheHomeScreenData": true
+    });
+    await _setInitValue();
+    // Fields initialized in field initializers (not by _setInitValue) also
+    // need their in-memory state restored so the UI reflects the reset.
+    qobuzEnabled.value = false;
+    qobuzInstances.value = "";
+    qobuzCountry.value = "US";
+    qobuzQuality.value = 27;
+    tidalEnabled.value = false;
+    tidalEndpoints.value = "";
+    tidalQuality.value = "LOSSLESS";
+    spotifyAutoFetchLyrics.value = true;
+    spotifyAutoEnrichTracks.value = true;
+    isLinkedWithPiped.value = false;
+    try {
+      Get.find<ThemeController>().refreshTheme();
+    } catch (_) {
+      // Theme controller may not be registered yet.
+    }
   }
 
   void toggleStopPlyabackOnSwipeAway(bool val) {

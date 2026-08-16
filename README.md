@@ -13,6 +13,7 @@ Stream from YouTube / YouTube Music. No login. No ads.
 Sonara is a community fork of [Harmony Music](https://github.com/anandnet/Harmony-Music), a Flutter-based music streaming app. It keeps everything great about Harmony Music and adds its own improvements:
 
 - **Spotify playlist import** without needing a Spotify Developer App — powered by an optional bundled [server-side resolver backend](backend/README.md)
+- **Multi-source playback** — optional Qobuz & Tidal FLAC/Hi-Res streaming through user-configured resolvers (no login, no credentials in the app), with YouTube as the automatic fallback
 - **Last.fm scrobbling** so your listening history follows you
 - **Listening statistics** — see what you actually play
 - **Richer metadata** — MusicBrainz, LRCLIB and Spotify oEmbed enrichment for imported playlists
@@ -41,6 +42,10 @@ Sonara is a community fork of [Harmony Music](https://github.com/anandnet/Harmon
 * Last.fm scrobbling
 * Listening statistics
 * Piped playlist integration
+* Optional multi-source playback: Qobuz & Tidal (Hi-Res FLAC / FLAC / AAC / MP3) via resolver instances, before YouTube
+* Resolver health screen to verify each configured source
+* Manual match correction when automatic cross-catalog matching picks the wrong version
+* Format display (codec, bitrate, sample rate, bit depth) in the player and song info
 * No advertisements
 * No login required
 
@@ -70,6 +75,10 @@ cd backend
 dart pub get
 dart run bin/server.dart
 ```
+
+### Optional: Qobuz & Tidal sources
+
+To stream or download lossless FLAC from Qobuz/Tidal, enable them in **Settings → Sources** and paste the base URLs of **resolver instances** (Qobuz) or **resolver endpoints** (Tidal) — one per line. Resolvers are community/self-hosted servers that hold the provider access, so the app itself never stores credentials. If none are configured or reachable, playback automatically falls back to YouTube. Use **Settings → Sources → Resolver health** to verify that a URL works.
 
 ## Localization
 

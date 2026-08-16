@@ -69,7 +69,28 @@ class PlayerControlWidget extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.labelSmall,
                           ),
-                        )
+                        ),
+                        Obx(() {
+                          final label = playerController
+                              .currentSong.value?.extras?['streamLabel'];
+                          return label == null
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Text(
+                                    label.toString(),
+                                    textAlign: TextAlign.start,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary),
+                                  ),
+                                );
+                        })
                       ],
                     );
                   }),

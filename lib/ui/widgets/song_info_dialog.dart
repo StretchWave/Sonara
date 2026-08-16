@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 
 import '/ui/widgets/common_dialog_widget.dart';
+import '/ui/widgets/match_correction_dialog.dart';
 
 class SongInfoDialog extends StatelessWidget {
   final MediaItem song;
@@ -40,11 +41,32 @@ class SongInfoDialog extends StatelessWidget {
                 InfoItem(
                     title: "bitrate".tr,
                     value: "${streamInfo["bitrate"] ?? "NA"}"),
+                if (streamInfo["label"] != null)
+                  InfoItem(title: "Format", value: "${streamInfo["label"]}"),
+                if (streamInfo["sampleRate"] != null)
+                  InfoItem(
+                      title: "Sample rate",
+                      value: "${streamInfo["sampleRate"]} Hz"),
+                if (streamInfo["bitDepth"] != null)
+                  InfoItem(
+                      title: "Bit depth",
+                      value: "${streamInfo["bitDepth"]} bit"),
                 InfoItem(
                     title: "loudnessDb".tr,
                     value: "${streamInfo["loudnessDb"] ?? "NA"}"),
               ],
             )),
+            const Divider(),
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.search),
+              title: const Text('Correct source match'),
+              subtitle: const Text(
+                  'Pick the right version when the automatic match is wrong'),
+              onTap: () {
+                showMatchCorrectionDialog(context, song);
+              },
+            ),
             const Divider(),
             SizedBox(
               height: 50,
@@ -73,7 +95,10 @@ class SongInfoDialog extends StatelessWidget {
       "audioCodec": null,
       "bitrate": null,
       "loudnessDb": null,
-      "approxDurationMs": null
+      "approxDurationMs": null,
+      "label": null,
+      "sampleRate": null,
+      "bitDepth": null
     };
     if (Hive.box("SongDownloads").containsKey(id)) {
       final song = Hive.box("SongDownloads").get(id);

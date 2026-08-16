@@ -20,6 +20,7 @@ import '/services/music_service.dart';
 import '/ui/player/player_controller.dart';
 import '/ui/utils/theme_controller.dart';
 import 'components/custom_expansion_tile.dart';
+import 'components/provider_health_screen.dart';
 import 'settings_screen_controller.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -648,6 +649,175 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
               CustomExpansionTile(
+                title: "Sources",
+                icon: Icons.language,
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Qobuz (no login, resolver-based)"),
+                    subtitle: Text(
+                      "Streams FLAC/MP3 through Kenny-style resolver "
+                      "instances, before YouTube. No Qobuz account needed in "
+                      "the app.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.qobuzEnabled.value,
+                        onChanged: settingsController.toggleQobuzEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.qobuzEnabled.isTrue
+                      ? Column(
+                          children: [
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Resolver instances"),
+                              subtitle: Obx(() => Text(
+                                    settingsController
+                                            .qobuzInstances.value.isEmpty
+                                        ? "One URL per line (e.g. "
+                                            "https://kqobuz.example.com)"
+                                        : settingsController
+                                            .qobuzInstances.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  )),
+                              onTap: () => _showQobuzInstancesDialog(
+                                  context, settingsController),
+                            ),
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Country"),
+                              subtitle: Obx(() => Text(
+                                    settingsController.qobuzCountry.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  )),
+                              onTap: () => _showQobuzCountryDialog(
+                                  context, settingsController),
+                            ),
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Quality"),
+                              trailing: Obx(
+                                () => DropdownButton<int>(
+                                  dropdownColor: Theme.of(context).cardColor,
+                                  underline: const SizedBox.shrink(),
+                                  value: settingsController.qobuzQuality.value,
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: 27,
+                                        child: Text("Hi-Res (24-bit)")),
+                                    DropdownMenuItem(
+                                        value: 7, child: Text("24-bit")),
+                                    DropdownMenuItem(
+                                        value: 6,
+                                        child: Text("CD FLAC (16-bit)")),
+                                    DropdownMenuItem(
+                                        value: 5, child: Text("MP3 320")),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      settingsController
+                                          .changeQobuzQuality(val);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Tidal (no login, resolver-based)"),
+                    subtitle: Text(
+                      "Streams Hi-Res FLAC / FLAC / AAC through custom "
+                      "resolver endpoints, before YouTube.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.tidalEnabled.value,
+                        onChanged: settingsController.toggleTidalEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.tidalEnabled.isTrue
+                      ? Column(
+                          children: [
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Resolver endpoints"),
+                              subtitle: Obx(() => Text(
+                                    settingsController
+                                            .tidalEndpoints.value.isEmpty
+                                        ? "One URL per line"
+                                        : settingsController
+                                            .tidalEndpoints.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  )),
+                              onTap: () => _showTidalEndpointsDialog(
+                                  context, settingsController),
+                            ),
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Quality"),
+                              trailing: Obx(
+                                () => DropdownButton<String>(
+                                  dropdownColor: Theme.of(context).cardColor,
+                                  underline: const SizedBox.shrink(),
+                                  value: settingsController.tidalQuality.value,
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: "HI_RES_LOSSLESS",
+                                        child: Text("Hi-Res FLAC")),
+                                    DropdownMenuItem(
+                                        value: "LOSSLESS",
+                                        child: Text("FLAC")),
+                                    DropdownMenuItem(
+                                        value: "HIGH",
+                                        child: Text("AAC 320")),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      settingsController
+                                          .changeTidalQuality(val);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
+                    contentPadding:
+                        const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Resolver health"),
+                    subtitle: Text(
+                      "Probe each configured resolver and show status",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    onTap: () =>
+                        Get.to(() => const ProviderHealthScreen()),
+                  ),
+                ],
+              ),
+              CustomExpansionTile(
                 title: "listeningStatistics".tr,
                 icon: Icons.insights,
                 children: [
@@ -862,6 +1032,100 @@ class SettingsScreen extends StatelessWidget {
               "${settingsController.currentVersion} ${"by".tr} anandnet",
               style: Theme.of(context).textTheme.bodySmall,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showQobuzInstancesDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.qobuzInstances.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Qobuz resolver instances'),
+        content: TextField(
+          controller: input,
+          maxLines: 5,
+          decoration: const InputDecoration(hintText: 'One URL per line'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeQobuzInstances(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showTidalEndpointsDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.tidalEndpoints.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tidal resolver endpoints'),
+        content: TextField(
+          controller: input,
+          maxLines: 5,
+          decoration: const InputDecoration(hintText: 'One URL per line'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeTidalEndpoints(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showQobuzCountryDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.qobuzCountry.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Qobuz country'),
+        content: TextField(
+          controller: input,
+          maxLength: 2,
+          decoration: const InputDecoration(
+            hintText: 'Two-letter country code, e.g. US',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (input.text.trim().length == 2) {
+                settingsController.changeQobuzCountry(input.text.trim());
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Save'),
           ),
         ],
       ),

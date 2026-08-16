@@ -1,3 +1,12 @@
+## Unreleased
+* Added multi-source playback: Qobuz & Tidal (Hi-Res FLAC / FLAC / AAC / MP3) via user-configured resolver instances — no login, no stored credentials, YouTube remains the automatic fallback
+* Added a Resolver health screen to probe each configured source and show Online/Reachable/Offline status
+* Added manual match correction: pick the right version when automatic cross-catalog matching is wrong; the choice is remembered
+* Downloads now keep the native format of the source (FLAC from Qobuz/Tidal) with format-aware file extensions
+* Show resolved format (codec, bitrate, sample rate, bit depth) in the player and song info
+* Fixed "Reset to default" so all settings (including Qobuz/Tidal sources) reset immediately in the UI
+* Hardened settings loading against corrupt stored values
+
 # 1.12.2
 * Added wakelock support to keep screen awake while playing music (can be toggled from settings)
 * Enabled downloading in external storage for Android devices

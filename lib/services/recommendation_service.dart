@@ -1,12 +1,9 @@
-import 'dart:math';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 
 import '../models/media_Item_builder.dart';
 import '../ui/screens/Settings/settings_screen_controller.dart';
-import '../utils/helper.dart';
 import 'music_service.dart';
 
 /// Builds personalised song recommendations by combining the user's liked
@@ -70,10 +67,8 @@ class RecommendationService extends GetxService {
   /// empty list if the API call fails or returns no usable data.
   Future<List<MediaItem>> _fetchRelated(MediaItem song) async {
     try {
-      final hlCode = Get.find<SettingsScreenController>()
-              .currentAppLanguageCode
-              .value ??
-          'en';
+      final hlCode =
+          Get.find<SettingsScreenController>().currentAppLanguageCode.value;
       final related =
           await _musicServices.getContentRelatedToSong(song.id, hlCode);
       if (related == null || related is! List) return [];

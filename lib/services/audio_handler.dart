@@ -23,6 +23,8 @@ import '/ui/player/player_controller.dart';
 import '../ui/screens/Home/home_screen_controller.dart';
 import '/services/background_task.dart';
 import '/services/permission_service.dart';
+import '/services/providers/song_query.dart';
+import '/services/providers/stream_route_config.dart';
 import '../utils/helper.dart';
 import '/models/media_Item_builder.dart';
 import '/services/utils.dart';
@@ -463,8 +465,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         currentIndex = songIndex;
         final isNewUrlReq = extras['newUrl'] ?? false;
         final currentSong = queue.value[currentIndex];
-        final futureStreamInfo =
-            checkNGetUrl(currentSong.id, generateNewUrl: isNewUrlReq);
+        final futureStreamInfo = checkNGetUrl(currentSong.id,
+            generateNewUrl: isNewUrlReq,
+            song: SongQuery.fromMediaItem(currentSong));
         final bool restoreSession = extras['restoreSession'] ?? false;
         isSongLoading = true;
         playbackState.add(playbackState.value
@@ -488,6 +491,10 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           return;
         }
         currentSongUrl = currentSong.extras!['url'] = streamInfo.audio!.url;
+        final resolvedAudio = streamInfo.audio;
+        if (resolvedAudio?.label != null) {
+          currentSong.extras!['streamLabel'] = resolvedAudio!.label;
+        }
         playbackState
             .add(playbackState.value.copyWith(queueIndex: currentIndex));
         await _playList.add(_createAudioSource(currentSong));
@@ -551,7 +558,8 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
       case 'setSourceNPlay':
         final currMed = (extras!['mediaItem'] as MediaItem);
-        final futureStreamInfo = checkNGetUrl(currMed.id);
+        final futureStreamInfo =
+            checkNGetUrl(currMed.id, song: SongQuery.fromMediaItem(currMed));
         isSongLoading = true;
         currentIndex = 0;
         await _playList.clear();
@@ -567,6 +575,10 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           return;
         }
         currentSongUrl = currMed.extras!['url'] = streamInfo.audio!.url;
+        final resolvedAudio = streamInfo.audio;
+        if (resolvedAudio?.label != null) {
+          currMed.extras!['streamLabel'] = resolvedAudio!.label;
+        }
 
         await _playList.add(_createAudioSource(currMed));
         isSongLoading = false;
@@ -792,7 +804,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
 // Work around used [useNewInstanceOfExplode = false] to Fix Connection closed before full header was received issue
   Future<HMStreamingData> checkNGetUrl(String songId,
-      {bool generateNewUrl = false, bool offlineReplacementUrl = false}) async {
+      {bool generateNewUrl = false,
+      bool offlineReplacementUrl = false,
+      SongQuery? song}) async {
     printINFO("Requested id : $songId");
     final songDownloadsBox = Hive.box("SongDownloads");
     if (!offlineReplacementUrl &&
@@ -871,8 +885,12 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
       if (streamInfo == null) {
         final token = RootIsolateToken.instance;
-        final streamInfoJson =
-            await Isolate.run(() => getStreamInfo(songId, token));
+        final configJson = StreamRouteConfig.fromSettings().toJsonString();
+        final songJson = song?.toJson();
+        final streamInfoJson = await Isolate.run(() => getStreamInfo(
+            songId, token,
+            configJson: configJson,
+            songJson: songJson));
         streamInfo = HMStreamingData.fromJson(streamInfoJson);
         if (streamInfo.playable) songsUrlCacheBox.put(songId, streamInfoJson);
       }

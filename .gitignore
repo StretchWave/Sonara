@@ -94,3 +94,6 @@ $RECYCLE.BIN/
 
 # Misc local config
 settings.json
+
+# Agent tooling state (Freebuff) — not part of the app
+.freebuff/

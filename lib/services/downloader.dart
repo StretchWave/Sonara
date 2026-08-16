@@ -11,6 +11,9 @@ import 'package:hive/hive.dart';
 
 import '../ui/screens/Album/album_screen_controller.dart';
 import '../ui/screens/Playlist/playlist_screen_controller.dart';
+import '/services/providers/song_query.dart';
+import '/services/providers/stream_route_config.dart';
+import '/services/providers/stream_router.dart';
 import '/services/stream_service.dart';
 import '../ui/widgets/snackbar.dart';
 import '/services/permission_service.dart';
@@ -155,7 +158,8 @@ class Downloader extends GetxService {
     final settingsScreenController = Get.find<SettingsScreenController>();
     final downloadingFormat = settingsScreenController.downloadingFormat.string;
 
-    final playerResponse = await StreamProvider.fetch(song.id);
+    final playerResponse = await StreamRouter.build(StreamRouteConfig.fromSettings())
+        .fetch(song.id, song: SongQuery.fromMediaItem(song));
     // if (!playerResponse.playable) {
     //   printINFO("Network error! Check your network connection.");
     //   ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
@@ -186,8 +190,12 @@ class Downloader extends GetxService {
         : playerResponse.highestBitrateMp4aAudio!;
 
     final dirPath = settingsScreenController.downloadLocationPath.string;
-    final actualDownformat =
-        requiredAudioStream.audioCodec.name.contains("mp") ? "m4a" : "opus";
+    final actualDownformat = switch (requiredAudioStream.audioCodec) {
+      Codec.flac => 'flac',
+      Codec.mp3 => 'mp3',
+      Codec.mp4a => 'm4a',
+      Codec.opus => 'opus',
+    };
     final RegExp invalidChar =
         RegExp(r'Container.|\/|\\|\"|\<|\>|\*|\?|\:|\!|\[|\]|\¡|\||\%');
     final songTitle = "${song.title.trim()} (${song.artist?.trim()})"

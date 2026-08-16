@@ -1,5 +1,8 @@
-import 'dart:io';
-import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+/// Transport models for resolved streams.
+///
+/// Stream resolution itself lives in `providers/` — see
+/// [StreamRouter] and [YouTubeAudioProvider].
+library;
 
 class StreamProvider {
   final bool playable;
@@ -7,78 +10,6 @@ class StreamProvider {
   final String statusMSG;
   StreamProvider(
       {required this.playable, this.audioFormats, this.statusMSG = ""});
-
-  static Future<StreamProvider> fetch(String videoId) async {
-    final yt = YoutubeExplode();
-    
-    try {
-      // The manifest endpoint is flaky (intermittent null crashes inside the
-      // client) — retry a couple of times before giving up.
-      StreamManifest? res;
-      Object? lastError;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        try {
-          res = await yt.videos.streamsClient.getManifest(videoId);
-          break;
-        } catch (e) {
-          lastError = e;
-          if (attempt < 2) {
-            await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
-          }
-        }
-      }
-      if (res == null) {
-        throw lastError ?? Exception('Could not fetch stream manifest');
-      }
-      final audio = res.audioOnly;
-      return StreamProvider(
-          playable: true,
-          statusMSG: "OK",
-          audioFormats: audio
-              .map((e) => Audio(
-                  itag: e.tag,
-                  audioCodec:
-                      e.audioCodec.contains('mp') ? Codec.mp4a : Codec.opus,
-                  bitrate: e.bitrate.bitsPerSecond,
-                  duration: e.duration ?? 0,
-                  loudnessDb: e.loudnessDb,
-                  url: e.url.toString(),
-                  size: e.size.totalBytes))
-              .toList());
-    } catch (e) {
-      if (e is SocketException) {
-        return StreamProvider(
-          playable: false,
-          statusMSG: "networkError",
-        );
-      } else if (e is VideoUnplayableException) {
-        return StreamProvider(
-          playable: false,
-          statusMSG: e.reason ?? "Song is unplayable",
-        );
-      } else if (e is VideoRequiresPurchaseException) {
-        return StreamProvider(
-          playable: false,
-          statusMSG: "Song requires purchase",
-        );
-      } else if (e is VideoUnavailableException) {
-        return StreamProvider(
-          playable: false,
-          statusMSG: "Song is unavailable",
-        );
-      } else if (e is YoutubeExplodeException) {
-        return StreamProvider(
-          playable: false,
-          statusMSG: e.message,
-        );
-      } else {
-        return StreamProvider(
-          playable: false,
-          statusMSG: "Unknown error occurred",
-        );
-      }
-    }
-  }
 
   Audio? get highestQualityAudio =>
       audioFormats?.lastWhere((item) => item.itag == 251 || item.itag == 140,
@@ -114,6 +45,14 @@ class Audio {
   final int size;
   final double loudnessDb;
   final String url;
+
+  /// Optional format metadata from lossless providers, e.g. "Qobuz Hi-Res
+  /// FLAC 24-bit/192 kHz". Null for YouTube streams.
+  final String? label;
+  final String? mimeType;
+  final int? sampleRate;
+  final int? bitDepth;
+
   Audio(
       {required this.itag,
       required this.audioCodec,
@@ -121,7 +60,11 @@ class Audio {
       required this.duration,
       required this.loudnessDb,
       required this.url,
-      required this.size});
+      required this.size,
+      this.label,
+      this.mimeType,
+      this.sampleRate,
+      this.bitDepth});
 
   Map<String, dynamic> toJson() => {
         "itag": itag,
@@ -130,19 +73,40 @@ class Audio {
         "loudnessDb": loudnessDb,
         "url": url,
         "approxDurationMs": duration,
-        "size": size
+        "size": size,
+        if (label != null) "label": label,
+        if (mimeType != null) "mimeType": mimeType,
+        if (sampleRate != null) "sampleRate": sampleRate,
+        if (bitDepth != null) "bitDepth": bitDepth,
       };
 
   factory Audio.fromJson(json) => Audio(
-      audioCodec: (json["audioCodec"] as String).contains("mp4a")
-          ? Codec.mp4a
-          : Codec.opus,
+      audioCodec: Codec.fromName((json["audioCodec"] as String?) ?? ""),
       itag: json['itag'],
       duration: json["approxDurationMs"] ?? 0,
       bitrate: json["bitrate"] ?? 0,
       loudnessDb: (json['loudnessDb'])?.toDouble() ?? 0.0,
       url: json['url'],
-      size: json["size"] ?? 0);
+      size: json["size"] ?? 0,
+      label: json['label'] as String?,
+      mimeType: json['mimeType'] as String?,
+      sampleRate: json['sampleRate'] is int ? json['sampleRate'] as int : null,
+      bitDepth: json['bitDepth'] is int ? json['bitDepth'] as int : null);
 }
 
-enum Codec { mp4a, opus }
+enum Codec {
+  mp4a,
+  opus,
+  flac,
+  mp3;
+
+  /// Maps a codec name (as produced by [Audio.toJson]) back to a [Codec].
+  /// Unknown names fall back to [Codec.opus] for backward compatibility
+  /// with old cached entries.
+  static Codec fromName(String name) {
+    if (name.contains('flac')) return Codec.flac;
+    if (name.contains('mp3')) return Codec.mp3;
+    if (name.contains('mp4a') || name.contains('aac')) return Codec.mp4a;
+    return Codec.opus;
+  }
+}
