@@ -1,10 +1,10 @@
 icon: assets/icons/icon.png
 summary: An application to stream Music
 group: Application/Multimedia
-vendor: anandnet
-packager: anandnet
+vendor: StretchWave
+packager: StretchWave
 license: GPLv3
-url: https://github.com/anandnet/Harmony-Music
+url: https://github.com/StretchWave/Sonara
 
 requires:
   - mpv-libs

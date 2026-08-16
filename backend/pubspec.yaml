@@ -1,6 +1,6 @@
 name: sonara_backend
 description: >-
-  Server-side playlist metadata resolver for the Sonara (Harmony Music fork)
+  Server-side playlist metadata resolver for Sonara
   Flutter app. Resolves public Spotify playlists without requiring app users
   to configure their own Spotify credentials.
 version: 1.0.0

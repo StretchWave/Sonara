@@ -2,7 +2,7 @@
 
 # 🎵 Sonara
 
-A free, open-source, cross-platform music streaming app for **Android, Windows and Linux** — a fork of [Harmony Music](https://github.com/anandnet/Harmony-Music).
+A free, open-source, cross-platform music streaming app for **Android, Windows and Linux**.
 
 Stream from YouTube / YouTube Music. No login. No ads.
 
@@ -10,7 +10,7 @@ Stream from YouTube / YouTube Music. No login. No ads.
 
 ## About
 
-Sonara is a community fork of [Harmony Music](https://github.com/anandnet/Harmony-Music), a Flutter-based music streaming app. It keeps everything great about Harmony Music and adds its own improvements:
+Sonara is a free, open-source, Flutter-based music streaming app with its own improvements:
 
 - **Spotify playlist import** without needing a Spotify Developer App — powered by an optional bundled [server-side resolver backend](backend/README.md)
 - **Multi-source playback** — optional Qobuz & Tidal FLAC/Hi-Res streaming through user-configured resolvers (no login, no credentials in the app), with YouTube as the automatic fallback

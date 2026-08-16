@@ -61,7 +61,7 @@ class SettingsScreenController extends GetxController {
 
   /// UI density scale: 1.0 (native) down to 0.55 (ultra compact).
   final densityScale = 1.0.obs;
-  final currentVersion = "V1.12.2";
+  final currentVersion = "V1.0.0";
 
   @override
   void onInit() {

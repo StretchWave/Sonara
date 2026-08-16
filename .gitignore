@@ -97,3 +97,6 @@ settings.json
 
 # Agent tooling state (Freebuff) — not part of the app
 .freebuff/
+
+# Inno Setup installer output
+windows/packaging/exe/*.exe

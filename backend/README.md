@@ -1,6 +1,6 @@
 # Sonara Playlist Resolver (backend)
 
-Server-side playlist metadata resolution for the Sonara (Harmony Music fork)
+Server-side playlist metadata resolution for Sonara
 Flutter app. It lets users import **public** Spotify playlists **without
 creating their own Spotify Developer App** — the backend holds the
 credentials and normalizes the result, so the app never talks to Spotify
