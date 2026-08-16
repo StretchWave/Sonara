@@ -1,6 +1,6 @@
-# Synora Playlist Resolver (backend)
+# Sonara Playlist Resolver (backend)
 
-Server-side playlist metadata resolution for the Synora (Harmony Music)
+Server-side playlist metadata resolution for the Sonara (Harmony Music fork)
 Flutter app. It lets users import **public** Spotify playlists **without
 creating their own Spotify Developer App** — the backend holds the
 credentials and normalizes the result, so the app never talks to Spotify
@@ -28,7 +28,7 @@ player uses before sign-in. Paste a URL, get tracks.
 cd backend
 dart pub get
 dart run bin/server.dart
-# Synora playlist resolver listening on http://0.0.0.0:3000
+# Sonara playlist resolver listening on http://0.0.0.0:3000
 ```
 
 Optional additional sources:
@@ -160,9 +160,9 @@ Any container host works (Railway, Render, Fly.io, AWS ECS, ...). A
 `Dockerfile` is included:
 
 ```bash
-docker build -t synora-resolver backend
+docker build -t sonara-resolver backend
 docker run -p 3000:3000 -e APIFY_API_TOKEN=... \
-  -e SPOTIFY_CLIENT_ID=... -e SPOTIFY_CLIENT_SECRET=... synora-resolver
+  -e SPOTIFY_CLIENT_ID=... -e SPOTIFY_CLIENT_SECRET=... sonara-resolver
 ```
 
 Then build the app with `--dart-define=BACKEND_URL=https://your-deployed-url`.

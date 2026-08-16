@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/spotify/track_normalizer.dart';
+import 'package:sonara/services/spotify/track_normalizer.dart';
 
 void main() {
   group('normalizeTitleForComparison', () {

@@ -1,8 +1,8 @@
-# Copilot Instructions for Harmony Music
+# Copilot Instructions for Sonara
 
 ## Project Overview
 
-Harmony Music is a cross-platform music streaming application built with Flutter, supporting Android, Windows, and Linux. The app streams music from YouTube/YouTube Music without requiring login or showing advertisements.
+Sonara is a cross-platform music streaming application built with Flutter, supporting Android, Windows, and Linux. It is a fork of Harmony Music. The app streams music from YouTube/YouTube Music without requiring login or showing advertisements.
 
 ## Technology Stack
 

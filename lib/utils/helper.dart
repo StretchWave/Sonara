@@ -5,17 +5,17 @@ import 'package:get/get.dart';
 import '/ui/navigator.dart';
 import '/ui/widgets/sort_widget.dart';
 
-void printERROR(dynamic text, {String tag = "Harmony Music"}) {
+void printERROR(dynamic text, {String tag = "Sonara"}) {
   if (kReleaseMode) return;
   debugPrint("\x1B[31m[$tag]: $text\x1B[0m");
 }
 
-void printWarning(dynamic text, {String tag = 'Harmony Music'}) {
+void printWarning(dynamic text, {String tag = 'Sonara'}) {
   if (kReleaseMode) return;
   debugPrint("\x1B[33m[$tag]: $text\x1B[34m");
 }
 
-void printINFO(dynamic text, {String tag = 'Harmony Music'}) {
+void printINFO(dynamic text, {String tag = 'Sonara'}) {
   if (kReleaseMode) return;
   debugPrint("\x1B[32m[$tag]: $text\x1B[34m");
 }

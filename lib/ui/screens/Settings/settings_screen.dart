@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:harmonymusic/utils/helper.dart';
-import 'package:harmonymusic/utils/lang_mapping.dart';
+import 'package:sonara/utils/helper.dart';
+import 'package:sonara/utils/lang_mapping.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../widgets/common_dialog_widget.dart';
@@ -844,7 +844,7 @@ class SettingsScreen extends StatelessWidget {
                     child: Column(
                       children: [
                         Text(
-                          "Harmony Music",
+                          "Sonara",
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         Text(settingsController.currentVersion,
@@ -970,6 +970,10 @@ class DiscoverContentSelectorDialog extends StatelessWidget {
                       label: "basedOnLast".tr,
                       controller: settingsController,
                       value: "BOLI"),
+                  radioWidget(
+                      label: "basedOnLikes".tr,
+                      controller: settingsController,
+                      value: "REC"),
                 ],
               ),
             ),

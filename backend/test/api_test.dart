@@ -1,12 +1,12 @@
 import 'dart:convert';
 
 import 'package:shelf/shelf.dart';
-import 'package:synora_backend/src/api.dart';
-import 'package:synora_backend/src/cache.dart';
-import 'package:synora_backend/src/models.dart';
-import 'package:synora_backend/src/providers/playlist_provider.dart';
-import 'package:synora_backend/src/rate_limit.dart';
-import 'package:synora_backend/src/resolver.dart';
+import 'package:sonara_backend/src/api.dart';
+import 'package:sonara_backend/src/cache.dart';
+import 'package:sonara_backend/src/models.dart';
+import 'package:sonara_backend/src/providers/playlist_provider.dart';
+import 'package:sonara_backend/src/rate_limit.dart';
+import 'package:sonara_backend/src/resolver.dart';
 import 'package:test/test.dart';
 
 const _playlistUrl = 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M';

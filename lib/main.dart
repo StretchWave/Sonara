@@ -12,6 +12,7 @@ import '/services/downloader.dart';
 import '/services/piped_service.dart';
 import '/services/playback_stats_service.dart';
 import '/services/lastfm_service.dart';
+import '/services/recommendation_service.dart';
 import 'utils/app_link_controller.dart';
 import '/services/audio_handler.dart';
 import '/services/music_service.dart';
@@ -48,7 +49,7 @@ class MyApp extends StatelessWidget {
     if (!GetPlatform.isDesktop) Get.put(AppLinksController());
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     return GetMaterialApp(
-        title: 'Harmony Music',
+        title: 'Sonara',
         home: const Home(),
         debugShowCheckedModeBanner: false,
         translations: Languages(),
@@ -115,6 +116,7 @@ Future<void> startApplicationServices() async {
   Get.lazyPut(() => Downloader(), fenix: true);
   Get.lazyPut(() => PlaybackStatsService(), fenix: true);
   Get.lazyPut(() => LastFmService(), fenix: true);
+  Get.lazyPut(() => RecommendationService(), fenix: true);
   if (GetPlatform.isDesktop) {
     Get.lazyPut(() => SearchScreenController(), fenix: true);
     Get.put(DesktopSystemTray());
@@ -147,7 +149,7 @@ void _setAppInitPrefs() {
       "skipSilenceEnabled": false,
       'streamingQuality': 1,
       'themePrimaryColor': 4278199603,
-      'discoverContentType': "QP",
+      'discoverContentType': "REC",
       'newVersionVisibility': updateCheckFlag,
       "cacheHomeScreenData": true
     });

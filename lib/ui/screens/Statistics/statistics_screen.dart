@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:harmonymusic/services/playback_stats_service.dart';
+import 'package:sonara/services/playback_stats_service.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../widgets/snackbar.dart';

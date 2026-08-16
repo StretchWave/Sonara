@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/metadata/musicbrainz_client.dart';
-import 'package:harmonymusic/services/spotify/playlist_migration_item.dart';
-import 'package:harmonymusic/services/spotify/playlist_migration_service.dart';
-import 'package:harmonymusic/services/spotify/provider_track_resolver.dart';
-import 'package:harmonymusic/services/spotify/spotify_source_track.dart';
-import 'package:harmonymusic/services/spotify/track_matcher.dart';
+import 'package:sonara/services/metadata/musicbrainz_client.dart';
+import 'package:sonara/services/spotify/playlist_migration_item.dart';
+import 'package:sonara/services/spotify/playlist_migration_service.dart';
+import 'package:sonara/services/spotify/provider_track_resolver.dart';
+import 'package:sonara/services/spotify/spotify_source_track.dart';
+import 'package:sonara/services/spotify/track_matcher.dart';
 import 'package:hive/hive.dart';
 
 import 'helpers/fake_dio_adapter.dart';

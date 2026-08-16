@@ -3,6 +3,7 @@
 *.log
 *.pyc
 *.swp
+*.swo
 .DS_Store
 .atom/
 .buildlog/
@@ -33,40 +34,63 @@ migrate_working_dir/
 /build/
 /dist/
 
-# macOS
-**/Flutter/ephemeral/
-**/Pods/
-**/macos/Flutter/GeneratedPluginRegistrant.swift
-**/macos/Flutter/ephemeral
-**/xcuserdata/
-
-# Windows
-**/windows/flutter/generated_plugin_registrant.cc
-**/windows/flutter/generated_plugin_registrant.h
-**/windows/flutter/generated_plugins.cmake
-
-# linux
-**/linux/flutter/generated_plugin_registrant.cc
-**/linux/flutter/generated_plugins.cmake
-
 # Symbolication related
 app.*.symbols
 
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Test coverage output
+/coverage/
+*.lcov
+
+# Android Studio / Gradle generated files
+android/local.properties
+android/key.properties
+android/.gradle/
+**/*.keystore
+**/*.jks
+**/android/app/.cxx/
+android/app/.cxx/*
+android/app/.cxx/Debug/*
+
+# Android Studio build artifacts
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# iOS / macOS generated files
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/GeneratedPluginRegistrant.*
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral
+**/Flutter/ephemeral/
+**/Pods/
+**/xcuserdata/
+**/*.xccheckout
+**/*.xcworkspace/xcuserdata/
+
+# Windows generated files
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+**/*.vcxproj.user
+
+# Linux generated files
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/generated_plugins.cmake
+
+# Windows / macOS OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
 # FVM Version Cache
 .fvm/
 .fvmrc
 
+# Misc local config
 settings.json
-
-android/app/.cxx/Debug/*
-
-/android/app/.cxx
-

@@ -5,7 +5,7 @@ import 'playlist_metadata_provider.dart';
 import '/services/spotify/spotify_api_client.dart';
 import '/services/spotify/spotify_source_track.dart';
 
-/// Resolves playlists through the Synora backend resolver.
+/// Resolves playlists through the Sonara backend resolver.
 ///
 /// The backend holds any Spotify/third-party credentials server-side and
 /// returns normalized, provider-agnostic metadata — the app never learns
@@ -15,7 +15,7 @@ import '/services/spotify/spotify_source_track.dart';
 ///
 /// 1. an explicit [BackendPlaylistProvider] constructor `baseUrl` (tests);
 /// 2. `--dart-define=BACKEND_URL=...` (production builds);
-/// 3. the `synoraBackendUrl` value in Hive `AppPrefs` (in-app override);
+/// 3. the `sonaraBackendUrl` value in Hive `AppPrefs` (in-app override);
 /// 4. [defaultBackendUrl] — a built-in default so IDE `flutter run` builds
 ///    (which often drop dart-defines) still reach the local resolver.
 ///
@@ -26,11 +26,11 @@ class BackendPlaylistProvider implements PlaylistMetadataProvider {
   /// Set via `--dart-define=BACKEND_URL=...` (production deployments).
   static const String configuredUrl = String.fromEnvironment('BACKEND_URL');
 
-  /// Built-in default pointing at the local Synora resolver.
+  /// Built-in default pointing at the local Sonara resolver.
   static const String defaultBackendUrl = 'http://localhost:34567';
 
   /// Hive `AppPrefs` key for the runtime backend URL override.
-  static const String prefsBackendUrl = 'synoraBackendUrl';
+  static const String prefsBackendUrl = 'sonaraBackendUrl';
 
   /// Applies the resolution order above; an explicit [override] wins
   /// (an empty string disables the provider, as in tests).
@@ -72,7 +72,7 @@ class BackendPlaylistProvider implements PlaylistMetadataProvider {
               receiveTimeout: const Duration(seconds: 35),
               headers: {
                 'User-Agent':
-                    'HarmonyMusic/2.0 (https://github.com/anandnet/Harmony-Music)',
+                    'Sonara/2.0 (https://github.com/anandnet/Harmony-Music)',
               },
             ));
 
@@ -80,10 +80,10 @@ class BackendPlaylistProvider implements PlaylistMetadataProvider {
   String get baseUrl => _baseUrl;
 
   @override
-  String get id => 'synora-backend';
+  String get id => 'sonara-backend';
 
   @override
-  String get displayName => 'Synora backend';
+  String get displayName => 'Sonara backend';
 
   @override
   bool canHandle(Uri url) =>

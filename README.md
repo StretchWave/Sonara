@@ -1,98 +1,130 @@
 <div align="center">
 
-# ❗**This repository is no longer maintained.**
+# 🎵 Sonara
+
+A free, open-source, cross-platform music streaming app for **Android, Windows and Linux** — a fork of [Harmony Music](https://github.com/anandnet/Harmony-Music).
+
+Stream from YouTube / YouTube Music. No login. No ads.
 
 </div>
 
-<img src="https://github.com/anandnet/Harmony-Music/blob/main/cover.png" width="1200" >
+## About
 
-# Harmony Music
-A cross platform app for music streaming made with Flutter(Android, Windows, linux).
+Sonara is a community fork of [Harmony Music](https://github.com/anandnet/Harmony-Music), a Flutter-based music streaming app. It keeps everything great about Harmony Music and adds its own improvements:
 
-> Spotify playlist imports can optionally use the bundled server-side resolver
-> in [`backend/`](backend/README.md) — it lets users import public Spotify
-> playlists without configuring their own Spotify Developer App. Build the
-> app with `--dart-define=BACKEND_URL=<deployed-url>` to enable it.
+- **Spotify playlist import** without needing a Spotify Developer App — powered by an optional bundled [server-side resolver backend](backend/README.md)
+- **Last.fm scrobbling** so your listening history follows you
+- **Listening statistics** — see what you actually play
+- **Richer metadata** — MusicBrainz, LRCLIB and Spotify oEmbed enrichment for imported playlists
+- **Playlist export** to JSON, CSV or directly to a YouTube Music playlist
 
-# Features
-* Ability to play song from Ytube/Ytube Music.
-* Song cache while playing
-* Radio feature support
-* Background music
-* Playlist creation & bookmark support
-* Artist & Album bookmark support
-* Import song,Playlist,Album,Artist via sharing from Ytube/Ytube Music.
+## Features
+
+* Play songs from YouTube / YouTube Music
+* Song caching while playing
+* Radio feature
+* Background music playback
+* Playlist creation & bookmarking
+* Artist & Album bookmarking
+* Import songs, playlists, albums and artists by sharing from YouTube / YouTube Music
+* Spotify playlist import (with optional server-side resolution, no credentials needed)
 * Streaming quality control
-* Song downloading support
-* Language support
+* Song downloading support (including external storage on Android)
+* Language support (50+ translations)
 * Skip silence
-* Dynamic Theme
-* Flexibility to switch between Bottom & Side Nav bar
-* Equalizer support
+* Dynamic theme
+* Bottom or Side navigation bar (switchable)
+* Equalizer support (Android)
 * Android Auto support
-* Synced & Plain Lyrics support
-* Sleep Timer
-* No Advertisment
-* No Login required
+* Synced & plain lyrics support (LRCLIB)
+* Sleep timer
+* Last.fm scrobbling
+* Listening statistics
 * Piped playlist integration
+* No advertisements
+* No login required
 
+## Building from source
 
-# Download
-* Pleass choose one source for android apk. you won't be able to update from cross build apk source.
+Requires the [Flutter SDK](https://docs.flutter.dev/get-started/install) (stable channel).
 
-<a href="https://github.com/anandnet/Harmony-Music/releases/latest"><img src ="https://github.com/anandnet/Harmony-Music/blob/main/don_github.png" width = "250"></a> <a href= "https://f-droid.org/packages/com.anandnet.harmonymusic"><img src = "https://github.com/anandnet/Harmony-Music/blob/main/down_fdroid.png" width = '250'></a></a> 
+```bash
+flutter pub get
 
-# Translation
-<a href="https://hosted.weblate.org/engage/harmony-music/">
-<img src="https://hosted.weblate.org/widget/harmony-music/project-translations/multi-auto.svg" alt="Translation status" />
-</a>
+# Android
+flutter build apk
 
-You can also help us in translation, click status image or <a href="https://hosted.weblate.org/projects/harmony-music/project-translations/"> here </a> to go to Weblate.
+# Windows
+flutter build windows
 
-# Troubleshoot
-* if you are facing Notification control issue or music playback stopped by system optimization, please enable ignore battery optimization option from settings
-
-# License
+# Linux
+flutter build linux
 ```
-Harmony Music is a free software licensed under GPL v3.0 with following condition.
 
+### Optional: backend for Spotify playlist imports
+
+Spotify playlist imports can optionally use the bundled server-side resolver in [`backend/`](backend/README.md). It lets users import public Spotify playlists without configuring their own Spotify Developer App. Build the app with `--dart-define=BACKEND_URL=<deployed-url>` to enable it, or run it locally:
+
+```bash
+cd backend
+dart pub get
+dart run bin/server.dart
+```
+
+## Localization
+
+Translations live in [`localization/`](localization/). After editing a language file, regenerate the Dart translations:
+
+```bash
+dart localization/generator.dart
+```
+
+## Troubleshooting
+
+* If you face notification control issues or music playback stops due to system optimization, enable **"Ignore battery optimization"** from the app settings.
+
+## License
+
+Sonara is free software licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)). As a fork, it also carries the conditions stated by the upstream Harmony Music project:
+
+```
 - Copied/Modified version of this software can not be used for 'non-free' and profit purposes.
 - You can not publish copied/modified version of this app on closed source app repository
   like PlayStore/AppStore.
-
 ```
 
+## Disclaimer
 
-# Disclaimer
 ```
 This project has been created while learning & learning is the main intention.
 This project is not sponsored or affiliated with, funded, authorized, endorsed by any content provider.
 Any Song, content, trademark used in this app are intellectual property of their respective owners.
-Harmony music is not responsible for any infringement of copyright or other intellectual property rights that may result
-from the use of the songs and other content available through this app.
+Sonara is not responsible for any infringement of copyright or other intellectual property rights
+that may result from the use of the songs and other content available through this app.
 
 This Software is released "as-is", without any warranty, responsibility or liability.
 In no event shall the Author of this Software be liable for any special, consequential,
-incidental or indirect damages whatsoever (including, without limitation, any 
-other pecuniary loss) arising out of the use of inability to use this product, even if
-Author of this Sotware is aware of the possibility of such damages and known defect.
+incidental or indirect damages whatsoever (including, without limitation, any other pecuniary loss)
+arising out of the use of or inability to use this product, even if the Author of this Software is
+aware of the possibility of such damages and known defect.
 ```
 
-# Learning References & Credits
-<a href = 'https://docs.flutter.dev/'>Flutter documentation</a> - a best guide to learn cross platform Ui/app developemnt<br/>
-<a href = 'https://suragch.medium.com/'>Suragch</a>'s Article related to Just audio & state management,architectural style<br/>
-<a href = 'https://github.com/sigma67'>sigma67</a>'s unofficial ytmusic api project<br/>
-App UI inspired by <a href = 'https://github.com/vfsfitvnm'>vfsfitvnm</a>'s ViMusic<br/>
-Synced lyrics provided by <a href = 'https://lrclib.net' >LRCLIB</a> <br/>
-<a href = 'https://piped.video' >Piped</a> for playlists.
+## Credits
 
-#### Major Packages used
-* just_audio: ^0.9.40  -  audio player for android
-* media_kit: ^1.1.9 - audio player for linux and windows
-* audio_service: ^0.18.15 - manage background music & platform audio services
-* get: ^4.6.6 -  package for high-performance state management, intelligent dependency injection, and route management
-* youtube_explode_dart: ^2.0.2 - Third party package to provide song url
-* hive: ^2.2.3 - offline db used 
-* hive_flutter: ^1.1.0
+This project is a fork of [**Harmony Music**](https://github.com/anandnet/Harmony-Music) — all credit for the original app goes to its author and contributors.
 
+* [Flutter documentation](https://docs.flutter.dev/) — the best guide to cross-platform UI development
+* [youtube_explode_dart](https://github.com/anandnet/youtube_explode_dart) — unofficial YouTube/YouTube Music API
+* App UI inspired by [ViMusic](https://github.com/vfsfitvnm/ViMusic)
+* Synced lyrics provided by [LRCLIB](https://lrclib.net)
+* [Piped](https://piped.video) for playlist integration
+* [MusicBrainz](https://musicbrainz.org) for metadata enrichment
 
+#### Major packages used
+
+* `just_audio` — audio player for Android
+* `media_kit` — audio player for Linux and Windows
+* `audio_service` — background music & platform audio services
+* `get` — state management, dependency injection and route management
+* `youtube_explode_dart` — third-party package to provide song URLs
+* `hive` / `hive_flutter` — offline database

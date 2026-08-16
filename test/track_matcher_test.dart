@@ -1,8 +1,8 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/spotify/spotify_api_client.dart';
-import 'package:harmonymusic/services/spotify/spotify_source_track.dart';
-import 'package:harmonymusic/services/spotify/track_matcher.dart';
+import 'package:sonara/services/spotify/spotify_api_client.dart';
+import 'package:sonara/services/spotify/spotify_source_track.dart';
+import 'package:sonara/services/spotify/track_matcher.dart';
 
 SpotifySourceTrack source({
   String id = 'sp1',

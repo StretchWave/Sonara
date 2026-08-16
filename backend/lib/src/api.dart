@@ -86,7 +86,7 @@ Handler buildHandler({
     ..get('/health', (Request request) async {
       return _json(200, {
         'ok': true,
-        'service': 'synora-playlist-resolver',
+        'service': 'sonara-playlist-resolver',
         'configured': resolver.providers.any((p) {
           try {
             return p.canResolve(const PlaylistResolveInput(

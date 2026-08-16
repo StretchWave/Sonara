@@ -1,4 +1,4 @@
-import 'package:harmonymusic/services/stream_service.dart'show Audio;
+import 'package:sonara/services/stream_service.dart'show Audio;
 
 class HMStreamingData {
   final bool playable;

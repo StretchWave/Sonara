@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/metadata/backend_playlist_provider.dart';
-import 'package:harmonymusic/services/metadata/playlist_metadata_provider.dart';
+import 'package:sonara/services/metadata/backend_playlist_provider.dart';
+import 'package:sonara/services/metadata/playlist_metadata_provider.dart';
 
-/// End-to-end check against a running Synora resolver backend.
+/// End-to-end check against a running Sonara resolver backend.
 ///
 /// Requires `cd backend && dart run bin/server.dart` (or the deployed
 /// backend). The test is skipped with a clear message when no backend is

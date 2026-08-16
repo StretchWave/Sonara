@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:synora_backend/src/models.dart';
-import 'package:synora_backend/src/spotify_client.dart';
+import 'package:sonara_backend/src/models.dart';
+import 'package:sonara_backend/src/spotify_client.dart';
 import 'package:test/test.dart';
 
 /// Fake adapter serving canned responses and counting requests.

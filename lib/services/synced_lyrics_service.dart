@@ -1,7 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:dio/dio.dart';
-import 'package:harmonymusic/services/lyrics_utils.dart';
-import 'package:harmonymusic/utils/helper.dart';
+import 'package:sonara/services/lyrics_utils.dart';
+import 'package:sonara/utils/helper.dart';
 import 'package:hive/hive.dart';
 
 class SyncedLyricsService {

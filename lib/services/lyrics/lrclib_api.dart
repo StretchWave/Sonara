@@ -162,7 +162,7 @@ class LrcLibClient {
               receiveTimeout: const Duration(seconds: 20),
               headers: {
                 'User-Agent':
-                    'HarmonyMusic/2.0 (https://github.com/anandnet/Harmony-Music)',
+                    'Sonara/2.0 (https://github.com/anandnet/Harmony-Music)',
                 'Accept': 'application/json',
               },
             ));

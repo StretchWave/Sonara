@@ -1,5 +1,5 @@
-import 'package:synora_backend/src/api.dart';
-import 'package:synora_backend/src/models.dart';
+import 'package:sonara_backend/src/api.dart';
+import 'package:sonara_backend/src/models.dart';
 import 'package:test/test.dart';
 
 void main() {

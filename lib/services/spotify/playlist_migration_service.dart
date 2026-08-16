@@ -24,9 +24,11 @@ const int kMaxConcurrentResolutions = 8;
 /// Pacing between sequential LRCLIB requests (LRCLIB asks for ~1 req/s).
 const Duration kLrcLibPacing = Duration(milliseconds: 400);
 
-/// Pacing between sequential MusicBrainz requests (MusicBrainz asks for at
-/// least 1 request/second).
-const Duration kMusicBrainzPacing = Duration(milliseconds: 1100);
+/// Pacing between MusicBrainz batches. MusicBrainz asks for at least
+/// 1 request/second; the enrichment pool issues a small batch, then waits
+/// this long before the next batch, keeping the aggregate rate close to the
+/// limit while cutting wall-clock time for large playlists.
+const Duration kMusicBrainzPacing = Duration(milliseconds: 700);
 
 /// Outcome of a destination action (liked songs / playlist insertion).
 class MigrationResult {
@@ -302,33 +304,44 @@ class PlaylistMigrationService {
   // ---------------------------------------------------------------------
 
   /// Looks up an ISRC (and release date) for every track that lacks one via
-  /// MusicBrainz. Strictly sequential with ~1s pacing to respect the API's
-  /// rate limits; results are cached by metadata hash. Enrichment is
-  /// best-effort — a failure never aborts the import, it just leaves the
-  /// track without an ISRC.
+  /// MusicBrainz, using a small bounded pool with pacing between batches to
+  /// respect the API's ~1 req/s limit while cutting wall-clock time.
+  /// Results are cached by metadata hash; enrichment is best-effort — a
+  /// failure never aborts the import, it just leaves the track without an
+  /// ISRC.
   Future<void> enrichWithMusicBrainz(
     List<PlaylistMigrationItem> items, {
     void Function(int completed, int total)? onProgress,
     bool Function()? shouldCancel,
   }) async {
+    const poolSize = 2;
     var completed = 0;
-    for (var i = 0; i < items.length; i++) {
+    var madeNetworkCalls = false;
+    var index = 0;
+    while (index < items.length) {
       if (shouldCancel?.call() ?? false) return;
-      final item = items[i];
-      final source = item.sourceTrack;
-      final needsEnrichment =
-          source.title.isNotEmpty &&
-          (source.isrc == null || source.isrc!.isEmpty);
-      if (needsEnrichment && i > 0 &&
-          // Cached entries make no network call — only pace before an
-          // actual MusicBrainz request, so repeat imports are instant.
-          await _cachedEnrichment(item) == null) {
+      final batch = <PlaylistMigrationItem>[];
+      while (index < items.length && batch.length < poolSize) {
+        final item = items[index++];
+        final source = item.sourceTrack;
+        if (source.title.isNotEmpty &&
+            (source.isrc == null || source.isrc!.isEmpty)) {
+          batch.add(item);
+        } else {
+          // No enrichment needed (empty title or ISRC already present).
+          completed++;
+          onProgress?.call(completed, items.length);
+        }
+      }
+      if (batch.isEmpty) continue;
+      // Only pace before a batch when the previous one actually talked to
+      // MusicBrainz — cache hits flow through instantly.
+      if (madeNetworkCalls) {
         await Future.delayed(kMusicBrainzPacing);
       }
-      if (needsEnrichment) {
-        await _enrichOne(item);
-      }
-      completed++;
+      final hits = await Future.wait(batch.map(_enrichOne));
+      madeNetworkCalls = hits.any((h) => h);
+      completed += batch.length;
       onProgress?.call(completed, items.length);
     }
   }
@@ -340,7 +353,9 @@ class PlaylistMigrationService {
     return cached is Map ? cached : null;
   }
 
-  Future<void> _enrichOne(PlaylistMigrationItem item) async {
+  /// Enriches one track. Returns true when a real MusicBrainz request was
+  /// made (cache hits return false — useful for pacing decisions).
+  Future<bool> _enrichOne(PlaylistMigrationItem item) async {
     final source = item.sourceTrack;
     final box = await _openBox('MusicBrainzCache');
     final cacheKey = 'mb:${item.metadataHash}';
@@ -355,7 +370,7 @@ class PlaylistMigrationService {
                   source.releaseDate,
         ));
       }
-      return;
+      return false;
     }
 
     try {
@@ -381,6 +396,7 @@ class PlaylistMigrationService {
               : source.releaseDate,
         ));
       }
+      return true;
     } on MusicBrainzRateLimited catch (e) {
       // One polite retry after Retry-After, then give up quietly.
       await Future.delayed(e.retryAfter);
@@ -400,8 +416,10 @@ class PlaylistMigrationService {
       } catch (_) {
         // Rate limited again — skip this track's enrichment.
       }
+      return true;
     } catch (_) {
       // Best-effort: any failure leaves the track un-enriched.
+      return true;
     }
   }
 

@@ -11,6 +11,7 @@ import '/models/album.dart';
 import '/models/playlist.dart';
 import '/models/quick_picks.dart';
 import '/services/music_service.dart';
+import '/services/recommendation_service.dart';
 import '../Settings/settings_screen_controller.dart';
 import '/ui/widgets/new_version_dialog.dart';
 
@@ -148,6 +149,17 @@ class HomeScreenController extends GetxController {
           printERROR(
               "Seems Based on last interaction content currently not available!");
         }
+      } else if (contentType == "REC") {
+        try {
+          final recService = Get.find<RecommendationService>();
+          final recommendations = await recService.getRecommendations();
+          if (recommendations.isNotEmpty) {
+            quickPicks.value = QuickPicks(recommendations,
+                title: "discover".tr);
+          }
+        } catch (e) {
+          printERROR("Recommendations unavailable: $e");
+        }
       }
 
       if (quickPicks.value.songList.isEmpty) {
@@ -236,6 +248,17 @@ class HomeScreenController extends GetxController {
       } catch (e) {
         printERROR(
             "Seems ${val == "TMV" ? "Top music videos" : "Trending songs"} currently not available!");
+      }
+    } else if (val == "REC") {
+      try {
+        final recService = Get.find<RecommendationService>();
+        final recommendations = await recService.getRecommendations();
+        if (recommendations.isNotEmpty) {
+          quickPicks_ = QuickPicks(recommendations,
+              title: "discover".tr);
+        }
+      } catch (e) {
+        printERROR("Recommendations unavailable: $e");
       }
     } else {
       songId ??= Hive.box("AppPrefs").get("recentSongId");

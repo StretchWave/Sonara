@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/lyrics/lrclib_api.dart';
+import 'package:sonara/services/lyrics/lrclib_api.dart';
 
 import 'helpers/fake_dio_adapter.dart';
 

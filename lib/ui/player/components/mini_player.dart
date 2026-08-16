@@ -1,7 +1,7 @@
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:harmonymusic/ui/screens/Settings/settings_screen_controller.dart';
+import 'package:sonara/ui/screens/Settings/settings_screen_controller.dart';
 import 'package:widget_marquee/widget_marquee.dart';
 
 import '/ui/widgets/lyrics_dialog.dart';

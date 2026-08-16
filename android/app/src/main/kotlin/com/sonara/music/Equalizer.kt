@@ -1,4 +1,4 @@
-package com.anandnet.harmonymusic
+package com.sonara.music
 
 import android.app.Activity
 import android.content.Context

@@ -59,7 +59,7 @@ class PlaylistMetadataResolver {
   PlaylistMetadataResolver(this._providers);
 
   /// The standard provider stack: public metadata first, then the local
-  /// cache, then the Synora backend (anonymous, server-side resolution),
+  /// cache, then the Sonara backend (anonymous, server-side resolution),
   /// and finally the app's own Spotify PKCE flow as an optional fallback
   /// for playlists the backend cannot reach.
   factory PlaylistMetadataResolver.defaultFor(SpotifyApiClient apiClient) =>

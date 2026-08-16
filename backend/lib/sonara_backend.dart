@@ -1,4 +1,4 @@
-/// Synora playlist metadata resolver backend.
+/// Sonara playlist metadata resolver backend.
 library;
 
 export 'src/api.dart';

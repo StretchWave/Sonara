@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:synora_backend/synora_backend.dart';
+import 'package:sonara_backend/sonara_backend.dart';
 import 'package:test/test.dart';
 
 /// Scripts the Spotify anonymous surface: the embed page (token bootstrap)

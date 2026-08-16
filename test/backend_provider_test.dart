@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/metadata/backend_playlist_provider.dart';
-import 'package:harmonymusic/services/metadata/playlist_metadata_provider.dart';
-import 'package:harmonymusic/services/metadata/playlist_metadata_resolver.dart';
-import 'package:harmonymusic/services/spotify/spotify_api_client.dart';
+import 'package:sonara/services/metadata/backend_playlist_provider.dart';
+import 'package:sonara/services/metadata/playlist_metadata_provider.dart';
+import 'package:sonara/services/metadata/playlist_metadata_resolver.dart';
+import 'package:sonara/services/spotify/spotify_api_client.dart';
 
 import 'helpers/fake_dio_adapter.dart';
 
@@ -182,7 +182,7 @@ void main() {
 
       expect(result.status, PlaylistMetadataStatus.success);
       expect(result.tracks, hasLength(2));
-      expect(result.tracksSource, 'synora-backend');
+      expect(result.tracksSource, 'sonara-backend');
       expect(result.authenticationRequired, isFalse);
     });
   });

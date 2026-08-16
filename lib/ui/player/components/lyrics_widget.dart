@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_lyric/lyric_parser/parser_qrc.dart';
 import 'package:flutter_lyric/lyrics_reader.dart';
 import 'package:flutter_lyric/lyrics_reader_model.dart';
 import 'package:get/get.dart';
@@ -105,24 +104,28 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
 
     return Stack(
       children: [
-        LyricsReader(
-          padding: const EdgeInsets.only(left: 5, right: 5),
-          lyricUi: playerController.lyricUi,
-          position: playerController
-              .progressBarStatus.value.current.inMilliseconds,
-          model: model,
-          emptyBuilder: () => Center(
-            child: Text(
-              "syncedLyricsNotAvailable".tr,
-              style: playerController.isDesktopLyricsDialogOpen
-                  ? Theme.of(context).textTheme.titleMedium!
-                  : Theme.of(context)
-                      .textTheme
-                      .titleMedium!
-                      .copyWith(color: Colors.white),
-            ),
-          ),
-        ),
+        // Rebuild on every playback-position tick so the active line
+        // advances with the song (LyricsReader re-selects the line when its
+        // `position` changes). The model itself is built once, outside the
+        // Obx, so the LRC parse never runs per tick.
+        Obx(() => LyricsReader(
+              padding: const EdgeInsets.only(left: 5, right: 5),
+              lyricUi: playerController.lyricUi,
+              position: playerController
+                  .progressBarStatus.value.current.inMilliseconds,
+              model: model,
+              emptyBuilder: () => Center(
+                child: Text(
+                  "syncedLyricsNotAvailable".tr,
+                  style: playerController.isDesktopLyricsDialogOpen
+                      ? Theme.of(context).textTheme.titleMedium!
+                      : Theme.of(context)
+                          .textTheme
+                          .titleMedium!
+                          .copyWith(color: Colors.white),
+                ),
+              ),
+            )),
         // Tap layer: a tap arms selection on the current lyric line.
         // (Only taps are handled here, so lyric scrolling still works.)
         Positioned.fill(

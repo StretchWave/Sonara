@@ -288,7 +288,13 @@ class SpotifyImportController extends GetxController {
       stage.value = ResolutionStage.enriching;
       await service.enrichWithMusicBrainz(
         target,
-        onProgress: (completed, total) => items.refresh(),
+        onProgress: (completed, total) {
+          // Enrichment happens before matching, so its progress must move
+          // the same counter the UI shows — otherwise the import looks
+          // stuck at 0 while the ISRC lookups run.
+          completedTracks.value = items.length - target.length + completed;
+          items.refresh();
+        },
         shouldCancel: () => cancelRequested.value,
       );
     }

@@ -1,4 +1,4 @@
-package com.anandnet.harmonymusic
+package com.sonara.music
 
 import com.ryanheise.audioservice.AudioServiceActivity
 

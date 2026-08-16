@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:synora_backend/synora_backend.dart';
+import 'package:sonara_backend/sonara_backend.dart';
 
 void main() async {
   final parsedPort = int.tryParse(Platform.environment['PORT'] ?? '');
@@ -68,7 +68,7 @@ void main() async {
   );
 
   final server = await shelf_io.serve(handler, host, port);
-  stdout.writeln('Synora playlist resolver listening on http://$host:${server.port}');
+  stdout.writeln('Sonara playlist resolver listening on http://$host:${server.port}');
   stdout.writeln('Spotify credentials configured: ${spotifyClient.isConfigured}');
   stdout.writeln('Apify scraper configured: ${apifySettings.isConfigured}');
 }

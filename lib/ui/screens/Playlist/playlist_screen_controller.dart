@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:audio_service/audio_service.dart' show MediaItem;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:harmonymusic/models/thumbnail.dart';
-import 'package:harmonymusic/services/permission_service.dart';
-import 'package:harmonymusic/ui/screens/Settings/settings_screen_controller.dart';
-import 'package:harmonymusic/ui/widgets/snackbar.dart';
-import 'package:harmonymusic/utils/helper.dart';
+import 'package:sonara/models/thumbnail.dart';
+import 'package:sonara/services/permission_service.dart';
+import 'package:sonara/ui/screens/Settings/settings_screen_controller.dart';
+import 'package:sonara/ui/widgets/snackbar.dart';
+import 'package:sonara/utils/helper.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart' as path_provider;
 
@@ -558,7 +558,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
   // Helper method to get the appropriate export directory for each platform
   Future<Directory> _getExportDirectory() async {
     Directory directory;
-    const appFolderName = "HarmonyMusic";
+    const appFolderName = "Sonara";
 
     try {
       if (Platform.isAndroid) {
@@ -600,11 +600,11 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
   // Helper method to get a user-friendly location message
   String _getLocationMessage(String path) {
     if (Platform.isAndroid) {
-      return "Downloads/HarmonyMusic";
+      return "Downloads/Sonara";
     } else if (Platform.isIOS) {
-      return "Files App > HarmonyMusic";
+      return "Files App > Sonara";
     } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      return "Downloads/HarmonyMusic";
+      return "Downloads/Sonara";
     } else {
       return path.split('/').last;
     }

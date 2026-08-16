@@ -1,7 +1,7 @@
-import 'package:synora_backend/src/cache.dart';
-import 'package:synora_backend/src/models.dart';
-import 'package:synora_backend/src/providers/playlist_provider.dart';
-import 'package:synora_backend/src/resolver.dart';
+import 'package:sonara_backend/src/cache.dart';
+import 'package:sonara_backend/src/models.dart';
+import 'package:sonara_backend/src/providers/playlist_provider.dart';
+import 'package:sonara_backend/src/resolver.dart';
 import 'package:test/test.dart';
 
 PlaylistResolution resolution(String source, {int trackCount = 2}) =>

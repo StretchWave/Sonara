@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/lyrics_utils.dart';
+import 'package:sonara/services/lyrics_utils.dart';
 
 /// Encrypts KRC text with the KuGou algorithm (for round-trip testing).
 String _encryptKrcForTest(String krc, String key) {

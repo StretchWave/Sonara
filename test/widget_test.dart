@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
-import 'package:harmonymusic/ui/player/components/galaxy_background.dart';
-import 'package:harmonymusic/ui/screens/Statistics/statistics_screen.dart'
+import 'package:sonara/ui/player/components/galaxy_background.dart';
+import 'package:sonara/ui/screens/Statistics/statistics_screen.dart'
     show formatListeningTime;
 
 class _ThemeLikeController extends GetxController {

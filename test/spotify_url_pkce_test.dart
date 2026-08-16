@@ -3,8 +3,8 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harmonymusic/services/spotify/spotify_api_client.dart';
-import 'package:harmonymusic/services/spotify/spotify_oauth.dart';
+import 'package:sonara/services/spotify/spotify_api_client.dart';
+import 'package:sonara/services/spotify/spotify_oauth.dart';
 
 void main() {
   const id = '37i9dQZF1DXcBWIGoYBM5M';
