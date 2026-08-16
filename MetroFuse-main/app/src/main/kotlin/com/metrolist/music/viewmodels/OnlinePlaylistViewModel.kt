@@ -1,0 +1,542 @@
+/**
+ * Metrolist Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.metrolist.music.viewmodels
+
+import android.content.Context
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.Album
+import com.metrolist.innertube.models.Artist
+import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.models.filterVideoSongs
+import com.metrolist.music.constants.DeezerCookieKey
+import com.metrolist.music.constants.HideVideoSongsKey
+import com.metrolist.music.constants.SongSortType
+import com.metrolist.music.constants.SoundCloudAuthTokenKey
+import com.metrolist.music.constants.SoundCloudSessionClientIdKey
+import com.metrolist.music.constants.SpotifyCookieKey
+import com.metrolist.music.constants.TidalCookieKey
+import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.providers.DeezerHomeFeedProvider
+import com.metrolist.music.providers.ExternalHomeItemIds
+import com.metrolist.music.providers.ExternalPlaylistPage
+import com.metrolist.music.providers.SoundCloudHomeFeedProvider
+import com.metrolist.music.providers.TidalHomeFeedProvider
+import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.get
+import com.metrolist.music.utils.reportException
+import com.metrolist.music.utils.spotify.SpotifyCanvasClient
+import com.metrolist.music.utils.spotify.SpotifyArtistOverview
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class OnlinePlaylistViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    savedStateHandle: SavedStateHandle,
+    private val database: MusicDatabase
+) : ViewModel() {
+    private val playlistId = savedStateHandle.get<String>("playlistId")!!
+
+    // Check if this is a special podcast playlist (with or without VL prefix)
+    private val normalizedPlaylistId = playlistId.removePrefix("VL")
+    val isPodcastPlaylist = normalizedPlaylistId == "RDPN" || normalizedPlaylistId == "SE"
+    private val externalCollectionIdParts =
+        ExternalHomeItemIds
+            .externalProviderId(playlistId)
+            ?.takeIf { (provider, type, _) ->
+                type == "playlist" ||
+                    (provider == "spotify" && type in setOf("album", "artist", "collection", "mix")) ||
+                    (provider == "tidal" && type in setOf("album", "mix")) ||
+                    (provider == "soundcloud" && type in setOf("album", "mix")) ||
+                    (provider == "deezer" && type in setOf("album", "artist", "mix"))
+            }
+    val isExternalPlaylist = externalCollectionIdParts != null
+    val isSpotifyArtist =
+        externalCollectionIdParts
+            ?.let { (provider, type, _) -> provider == "spotify" && type == "artist" }
+            ?: false
+
+    val playlist = MutableStateFlow<PlaylistItem?>(null)
+    val playlistSongs = MutableStateFlow<List<SongItem>>(emptyList())
+    val spotifyArtistOverview = MutableStateFlow<SpotifyArtistOverview?>(null)
+
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading = _isLoading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore = _isLoadingMore.asStateFlow()
+
+    val dbPlaylist = database.playlistByBrowseId(playlistId)
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    var continuation: String? = null
+        private set
+
+    private var proactiveLoadJob: Job? = null
+    private var externalContinuation: ExternalContinuation? = null
+    private val externalEmptyPageSkipLimit = 3
+
+    init {
+        fetchInitialPlaylistData()
+    }
+
+    private fun fetchInitialPlaylistData() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _error.value = null
+            continuation = null
+            externalContinuation = null
+            proactiveLoadJob?.cancel() // Cancel any ongoing proactive load
+
+            if (isExternalPlaylist) {
+                fetchExternalPlaylist()
+            } else if (isPodcastPlaylist) {
+                // Use special podcast playlist APIs
+                fetchPodcastPlaylist()
+            } else {
+                // Use regular playlist API
+                fetchRegularPlaylist()
+            }
+        }
+    }
+
+    private suspend fun fetchExternalPlaylist() {
+        val (provider, type, externalId) =
+            externalCollectionIdParts
+                ?: run {
+                    _error.value = "Unknown external collection"
+                    _isLoading.value = false
+                    return
+                }
+
+        when (provider) {
+            "spotify" -> {
+                val cookie = context.dataStore.get(SpotifyCookieKey, "")
+                runCatching {
+                    if (cookie.isBlank()) error("Spotify login cookie is missing")
+                    when (type) {
+                        "album" -> SpotifyCanvasClient.resolveAlbum(externalId, cookie)
+                        "artist" -> SpotifyCanvasClient.resolveArtist(externalId, cookie)
+                        "collection" -> SpotifyCanvasClient.resolvePlaylist(externalId, cookie)
+                        "playlist", "mix" ->
+                            SpotifyCanvasClient.resolvePlaylist(
+                                playlistId = externalId,
+                                cookie = cookie,
+                            )
+                        else -> null
+                    } ?: error("Failed to load Spotify $type")
+                }.onSuccess { page ->
+                    setExternalPlaylist(
+                        page = page,
+                        continuation =
+                            page.continuation
+                                ?.toIntOrNull()
+                                ?.let { offset ->
+                                    ExternalContinuation(
+                                        provider = provider,
+                                        type = type,
+                                        id = externalId,
+                                        offset = offset,
+                                    )
+                                },
+                    )
+                    if (type == "artist") {
+                        fetchSpotifyArtistOverview(externalId, cookie)
+                    }
+                }
+                    .onFailure { throwable ->
+                        _error.value = throwable.message ?: "Failed to load Spotify $type"
+                        _isLoading.value = false
+                        reportException(throwable)
+                    }
+            }
+
+            "tidal" -> {
+                val cookie = context.dataStore.get(TidalCookieKey, "")
+                TidalHomeFeedProvider
+                    .loadCollection(externalId, type, cookie)
+                    .onSuccess { page -> setExternalPlaylist(page) }
+                    .onFailure { throwable ->
+                        _error.value = throwable.message ?: "Failed to load TIDAL $type"
+                        _isLoading.value = false
+                        reportException(throwable)
+                    }
+            }
+
+            "soundcloud" -> {
+                val token = context.dataStore.get(SoundCloudAuthTokenKey, "")
+                val scClientId = context.dataStore.get(SoundCloudSessionClientIdKey, "")
+                SoundCloudHomeFeedProvider
+                    .loadCollection(externalId, type, token, scClientId)
+                    .onSuccess { page -> setExternalPlaylist(page) }
+                    .onFailure { throwable ->
+                        _error.value = throwable.message ?: "Failed to load SoundCloud $type"
+                        _isLoading.value = false
+                        reportException(throwable)
+                    }
+            }
+
+            "deezer" -> {
+                val cookie = context.dataStore.get(DeezerCookieKey, "")
+                DeezerHomeFeedProvider
+                    .loadCollection(externalId, type, cookie)
+                    .onSuccess { page -> setExternalPlaylist(page) }
+                    .onFailure { throwable ->
+                        _error.value = throwable.message ?: "Failed to load Deezer $type"
+                        _isLoading.value = false
+                        reportException(throwable)
+                    }
+            }
+
+            else -> {
+                _error.value = "Unsupported external playlist provider"
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private fun setExternalPlaylist(
+        page: ExternalPlaylistPage,
+        continuation: ExternalContinuation? = null,
+    ) {
+        playlist.value = page.playlist
+        playlistSongs.value = applySongFilters(page.songs)
+        this.continuation = null
+        externalContinuation = continuation
+        _isLoading.value = false
+    }
+
+    /**
+     * Fetches the richer Spotify artist overview (popular releases, fans-also-like,
+     * featuring, artist playlists) as a separate, independently-failing request.
+     * Launched on its own so a slow/failed overview never blocks the base artist
+     * page (name/monthly-listeners/top-tracks) from rendering.
+     */
+    private fun fetchSpotifyArtistOverview(
+        artistId: String,
+        cookie: String,
+    ) {
+        spotifyArtistOverview.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                SpotifyCanvasClient.resolveArtistOverview(artistId, cookie)
+            }.onSuccess { overview ->
+                spotifyArtistOverview.value = overview
+            }.onFailure { throwable ->
+                reportException(throwable)
+            }
+        }
+    }
+
+    private suspend fun fetchPodcastPlaylist() {
+        when (normalizedPlaylistId) {
+            "RDPN" -> {
+                YouTube.newEpisodes()
+                    .onSuccess { episodes ->
+                        playlist.value = PlaylistItem(
+                            id = playlistId,
+                            title = "New Episodes",
+                            author = null,
+                            songCountText = "${episodes.size} episodes",
+                            thumbnail = episodes.firstOrNull()?.thumbnail ?: "",
+                            playEndpoint = null,
+                            shuffleEndpoint = null,
+                            radioEndpoint = null,
+                        )
+                        playlistSongs.value = applySongFilters(episodes)
+                        _isLoading.value = false
+                    }.onFailure { throwable ->
+                        _error.value = throwable.message ?: "Failed to load new episodes"
+                        _isLoading.value = false
+                        reportException(throwable)
+                    }
+            }
+            "SE" -> {
+                timber.log.Timber.d("[SE_LOCAL] Fetching SE playlist...")
+                val result = YouTube.episodesForLater()
+                val episodes = result.getOrNull() ?: emptyList()
+                timber.log.Timber.d("[SE_LOCAL] YouTube API result: ${if (result.isSuccess) "success" else "failed"}, ${episodes.size} episodes")
+
+                if (result.isSuccess && episodes.isNotEmpty()) {
+                    // Use YouTube episodes
+                    playlist.value = PlaylistItem(
+                        id = playlistId,
+                        title = "Episodes for Later",
+                        author = null,
+                        songCountText = "${episodes.size} episodes",
+                        thumbnail = episodes.firstOrNull()?.thumbnail ?: "",
+                        playEndpoint = null,
+                        shuffleEndpoint = null,
+                        radioEndpoint = null,
+                    )
+                    playlistSongs.value = applySongFilters(episodes)
+                    _isLoading.value = false
+                } else {
+                    // Fall back to local saved episodes when API fails or returns empty
+                    timber.log.Timber.d("[SE_LOCAL] Falling back to local saved episodes")
+                    loadLocalSavedEpisodes()
+                }
+            }
+            else -> {
+                _error.value = "Unknown podcast playlist"
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private suspend fun fetchRegularPlaylist() {
+        YouTube.playlist(playlistId)
+            .onSuccess { playlistPage ->
+                playlist.value = playlistPage.playlist
+                playlistSongs.value = applySongFilters(playlistPage.songs)
+                continuation = playlistPage.songsContinuation
+                _isLoading.value = false
+                if (continuation != null) {
+                    startProactiveBackgroundLoading()
+                }
+            }.onFailure { throwable ->
+                _error.value = throwable.message ?: "Failed to load playlist"
+                _isLoading.value = false
+                reportException(throwable)
+            }
+    }
+
+    private suspend fun loadLocalSavedEpisodes() {
+        timber.log.Timber.d("[SE_LOCAL] loadLocalSavedEpisodes called")
+        val savedEpisodes = database.savedPodcastEpisodes(SongSortType.CREATE_DATE, true).firstOrNull() ?: emptyList()
+        timber.log.Timber.d("[SE_LOCAL] Found ${savedEpisodes.size} saved episodes")
+        savedEpisodes.forEachIndexed { index, ep ->
+            timber.log.Timber.d("[SE_LOCAL] Episode $index: id=${ep.song.id}, title=${ep.song.title}, isEpisode=${ep.song.isEpisode}, inLibrary=${ep.song.inLibrary}")
+        }
+        if (savedEpisodes.isNotEmpty()) {
+            // Convert local Song entities to SongItem format
+            val songItems = savedEpisodes.map { song ->
+                SongItem(
+                    id = song.song.id,
+                    title = song.song.title,
+                    artists = song.artists.map { Artist(it.id, it.name) },
+                    album = song.album?.let { com.metrolist.innertube.models.Album(it.id, it.title) },
+                    duration = song.song.duration,
+                    thumbnail = song.song.thumbnailUrl ?: "",
+                    explicit = song.song.explicit,
+                    endpoint = null,
+                )
+            }
+            timber.log.Timber.d("[SE_LOCAL] Converted to ${songItems.size} SongItems")
+            playlist.value = PlaylistItem(
+                id = playlistId,
+                title = "Episodes for Later",
+                author = null,
+                songCountText = "${songItems.size} episodes",
+                thumbnail = songItems.firstOrNull()?.thumbnail ?: "",
+                playEndpoint = null,
+                shuffleEndpoint = null,
+                radioEndpoint = null,
+            )
+            val filtered = applySongFilters(songItems)
+            timber.log.Timber.d("[SE_LOCAL] After filter: ${filtered.size} episodes, setting playlistSongs")
+            playlistSongs.value = filtered
+            _isLoading.value = false
+            timber.log.Timber.d("[SE_LOCAL] Done, isLoading=false")
+        } else {
+            timber.log.Timber.d("[SE_LOCAL] No saved episodes found")
+            _error.value = "No saved episodes"
+            _isLoading.value = false
+        }
+    }
+
+    private fun startProactiveBackgroundLoading() {
+        proactiveLoadJob?.cancel() // Cancel previous job if any
+        proactiveLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            var currentProactiveToken = continuation
+            while (currentProactiveToken != null && isActive) {
+                // If a manual loadMore is happening, pause proactive loading
+                if (_isLoadingMore.value) {
+                    // Wait until manual load is finished, then re-evaluate
+                    // This simple break and restart strategy from loadMoreSongs is preferred
+                    break 
+                }
+
+                YouTube.playlistContinuation(currentProactiveToken)
+                    .onSuccess { playlistContinuationPage ->
+                        val currentSongs = playlistSongs.value.toMutableList()
+                        currentSongs.addAll(playlistContinuationPage.songs)
+                        playlistSongs.value = applySongFilters(currentSongs)
+                        currentProactiveToken = playlistContinuationPage.continuation
+                        // Update the class-level continuation for manual loadMore if needed
+                        this@OnlinePlaylistViewModel.continuation = currentProactiveToken 
+                    }.onFailure { throwable ->
+                        reportException(throwable)
+                        currentProactiveToken = null // Stop proactive loading on error
+                    }
+            }
+            // If loop finishes because currentProactiveToken is null, all songs are loaded proactively.
+        }
+    }
+
+    fun loadMoreSongs() {
+        if (_isLoadingMore.value) return // Already loading more (manually)
+
+        externalContinuation?.let { continuation ->
+            loadMoreExternalSongs(continuation)
+            return
+        }
+        
+        val tokenForManualLoad = continuation ?: return // No more songs to load
+
+        proactiveLoadJob?.cancel() // Cancel proactive loading to prioritize manual scroll
+        _isLoadingMore.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            YouTube.playlistContinuation(tokenForManualLoad)
+                .onSuccess { playlistContinuationPage ->
+                    val currentSongs = playlistSongs.value.toMutableList()
+                    currentSongs.addAll(playlistContinuationPage.songs)
+                    playlistSongs.value = applySongFilters(currentSongs)
+                    continuation = playlistContinuationPage.continuation
+                }.onFailure { throwable ->
+                    reportException(throwable)
+                }.also {
+                    _isLoadingMore.value = false
+                    // Resume proactive loading if there's still a continuation
+                    if (continuation != null && isActive) {
+                        startProactiveBackgroundLoading()
+                    }
+                }
+        }
+    }
+
+    private fun loadMoreExternalSongs(token: ExternalContinuation) {
+        proactiveLoadJob?.cancel()
+        _isLoadingMore.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val seenSongIds = playlistSongs.value.mapTo(mutableSetOf()) { it.id }
+                var cursor: ExternalContinuation? = token
+                var selectedResult: Triple<ExternalPlaylistPage, List<SongItem>, ExternalContinuation?>? = null
+                var attempts = 0
+
+                while (attempts < externalEmptyPageSkipLimit) {
+                    val currentToken = cursor ?: break
+                    val page =
+                        when (currentToken.provider) {
+                            "spotify" -> {
+                                val cookie = context.dataStore.get(SpotifyCookieKey, "")
+                                when (currentToken.type) {
+                                    "album" ->
+                                        SpotifyCanvasClient.resolveAlbumPage(
+                                            albumId = currentToken.id,
+                                            cookie = cookie,
+                                            offset = currentToken.offset,
+                                        )
+                                    "playlist", "mix", "collection" ->
+                                        SpotifyCanvasClient.resolvePlaylistPage(
+                                            playlistId = currentToken.id,
+                                            cookie = cookie,
+                                            offset = currentToken.offset,
+                                        )
+                                    else -> null
+                                }
+                            }
+                            else -> null
+                        }
+                    attempts += 1
+                    if (page == null) {
+                        cursor = null
+                        selectedResult = null
+                        continue
+                    }
+
+                    val nextContinuation =
+                        page.continuation
+                            ?.toIntOrNull()
+                            ?.takeIf { offset -> offset > currentToken.offset }
+                            ?.let { offset -> currentToken.copy(offset = offset) }
+                    val preservesDuplicateRows =
+                        currentToken.provider == "spotify" &&
+                            currentToken.type in setOf("playlist", "mix")
+                    val freshSongs =
+                        if (preservesDuplicateRows) {
+                            page.songs
+                        } else {
+                            page.songs.filter { song -> seenSongIds.add(song.id) }
+                        }
+                    selectedResult = Triple(page, freshSongs, nextContinuation)
+                    cursor =
+                        if (freshSongs.isEmpty() && nextContinuation != null) {
+                            nextContinuation
+                        } else {
+                            null
+                        }
+                }
+
+                selectedResult
+            }.onSuccess { result ->
+                if (result != null) {
+                    val (_, freshSongs, nextContinuation) = result
+                    val currentSongs = playlistSongs.value.toMutableList()
+                    currentSongs.addAll(freshSongs)
+                    if (freshSongs.isNotEmpty()) {
+                        playlistSongs.value = applySongFilters(currentSongs)
+                    }
+                    externalContinuation = nextContinuation
+                } else {
+                    externalContinuation = null
+                }
+            }.onFailure { throwable ->
+                reportException(throwable)
+                externalContinuation = null
+            }.also {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
+    fun retry() {
+        proactiveLoadJob?.cancel()
+        fetchInitialPlaylistData() // This will also restart proactive loading if applicable
+    }
+
+    private fun applySongFilters(songs: List<SongItem>): List<SongItem> {
+        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+        val filteredSongs = songs.filterVideoSongs(hideVideoSongs)
+        return if (isExternalPlaylist) {
+            filteredSongs
+        } else {
+            filteredSongs.distinctBy { it.id }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        proactiveLoadJob?.cancel()
+    }
+}
+
+private data class ExternalContinuation(
+    val provider: String,
+    val type: String,
+    val id: String,
+    val offset: Int,
+)

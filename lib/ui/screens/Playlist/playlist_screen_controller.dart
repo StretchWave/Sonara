@@ -79,7 +79,8 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
     isDefaultPlaylist.value = (playlistId == "SongDownloads" ||
         playlistId == "SongsCache" ||
         playlistId == "LIBRP" ||
-        playlistId == "LIBFAV");
+        playlistId == "LIBFAV" ||
+        playlistId == "LIBTP");
 
     if (!isIdOnly && !playlist_.isCloudPlaylist) {
       playlist.value = playlist_;

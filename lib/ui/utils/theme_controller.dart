@@ -60,6 +60,21 @@ class ThemeController extends GetxController {
     setWindowsTitleBarColor(themedata.value!.scaffoldBackgroundColor);
   }
 
+  /// Re-applies the currently selected theme mode (used after settings
+  /// that affect theme construction, e.g. density scaling, change).
+  void refreshTheme() {
+    changeThemeModeType(
+        ThemeType.values[Hive.box('appPrefs').get("themeModeType") ?? 0]);
+  }
+
+  /// Visual density derived from the user's density-scale preference.
+  VisualDensity _density() {
+    final density =
+        (Hive.box("AppPrefs").get("densityScale") as num?)?.toDouble() ?? 1.0;
+    final vd = ((density - 1.0) * 10).round().clamp(-4, 0).toDouble();
+    return VisualDensity(horizontal: vd, vertical: vd);
+  }
+
   void setTheme(ImageProvider imageProvider, String songId) async {
     if (songId == currentSongId) return;
     PaletteGenerator generator = await PaletteGenerator.fromImageProvider(
@@ -102,6 +117,7 @@ class ThemeController extends GetxController {
 
       final baseTheme = ThemeData(
           useMaterial3: false,
+          visualDensity: _density(),
           primaryColor: primarySwatch![500],
           colorScheme: ColorScheme.fromSwatch(
               accentColor: primarySwatch[200],
@@ -181,6 +197,7 @@ class ThemeController extends GetxController {
       );
       final baseTheme = ThemeData(
           useMaterial3: false,
+          visualDensity: _density(),
           brightness: Brightness.dark,
           canvasColor: Colors.black,
           primaryColor: Colors.black,
@@ -239,6 +256,83 @@ class ThemeController extends GetxController {
                   borderSide: BorderSide(color: Colors.white))));
       return baseTheme.copyWith(
           textTheme: GoogleFonts.interTextTheme(baseTheme.textTheme));
+    } else if (themeType == ThemeType.black) {
+      // OLED pure black: identical to the dark theme but with true-black
+      // surfaces so pixels are switched off on OLED displays.
+      SystemChrome.setSystemUIOverlayStyle(
+        SystemUiOverlayStyle(
+            statusBarIconBrightness: Brightness.light,
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.white.withOpacity(0.002),
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarIconBrightness: Brightness.light,
+            systemStatusBarContrastEnforced: false,
+            systemNavigationBarContrastEnforced: true),
+      );
+      final baseTheme = ThemeData(
+          useMaterial3: false,
+          visualDensity: _density(),
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: Colors.black,
+          canvasColor: Colors.black,
+          primaryColor: Colors.black,
+          primaryColorDark: Colors.black,
+          primaryColorLight: Colors.grey[900],
+          cardColor: const Color(0xFF0A0A0A),
+          dialogBackgroundColor: const Color(0xFF0A0A0A),
+          colorScheme: ColorScheme.fromSwatch(
+              accentColor: Colors.grey[700],
+              brightness: Brightness.dark,
+              backgroundColor: Colors.black,
+              cardColor: const Color(0xFF0A0A0A)),
+          progressIndicatorTheme: ProgressIndicatorThemeData(
+              color: Colors.grey[700], linearTrackColor: Colors.white),
+          textTheme: const TextTheme(
+              titleLarge: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.bold,
+              ),
+              titleMedium: TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+              titleSmall: TextStyle(),
+              labelMedium: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 23,
+              ),
+              labelSmall: TextStyle(
+                  fontSize: 15, letterSpacing: 0, fontWeight: FontWeight.bold),
+              bodyMedium: TextStyle(color: Colors.grey)),
+          navigationRailTheme: const NavigationRailThemeData(
+              backgroundColor: Colors.black,
+              selectedIconTheme: IconThemeData(
+                color: Colors.white,
+              ),
+              unselectedIconTheme: IconThemeData(color: Colors.white38),
+              selectedLabelTextStyle: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15),
+              unselectedLabelTextStyle: TextStyle(
+                  color: Colors.white38, fontWeight: FontWeight.bold)),
+          bottomSheetTheme: const BottomSheetThemeData(
+              backgroundColor: Colors.black, modalBarrierColor: Colors.black),
+          sliderTheme: const SliderThemeData(
+            inactiveTrackColor: Colors.white30,
+            activeTrackColor: Colors.white,
+            valueIndicatorColor: Colors.black38,
+            thumbColor: Colors.white,
+          ),
+          textSelectionTheme: TextSelectionThemeData(
+              cursorColor: Colors.grey[700],
+              selectionColor: Colors.grey[700],
+              selectionHandleColor: Colors.grey[700]),
+          inputDecorationTheme: const InputDecorationTheme(
+              focusColor: Colors.white,
+              focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white))));
+      return baseTheme.copyWith(
+          textTheme: GoogleFonts.interTextTheme(baseTheme.textTheme));
     } else {
       SystemChrome.setSystemUIOverlayStyle(
         SystemUiOverlayStyle(
@@ -252,6 +346,7 @@ class ThemeController extends GetxController {
       );
       final baseTheme = ThemeData(
           useMaterial3: false,
+          visualDensity: _density(),
           brightness: Brightness.light,
           canvasColor: Colors.white,
           colorScheme: ColorScheme.fromSwatch(
@@ -304,7 +399,7 @@ class ThemeController extends GetxController {
               cursorColor: Colors.grey[400],
               selectionColor: Colors.grey[400],
               selectionHandleColor: Colors.grey[400]),
-          dialogTheme: DialogTheme(backgroundColor: Colors.grey[200]),
+          dialogTheme: DialogThemeData(backgroundColor: Colors.grey[200]),
           inputDecorationTheme: const InputDecorationTheme(
               focusColor: Colors.black,
               focusedBorder: UnderlineInputBorder(
@@ -398,4 +493,5 @@ enum ThemeType {
   system,
   dark,
   light,
+  black,
 }

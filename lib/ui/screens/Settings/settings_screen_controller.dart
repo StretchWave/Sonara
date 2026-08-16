@@ -43,10 +43,20 @@ class SettingsScreenController extends GetxController {
   final autoDownloadFavoriteSongEnabled = false.obs;
   final isTransitionAnimationDisabled = false.obs;
   final isBottomNavBarEnabled = false.obs;
+  final spotifyAutoFetchLyrics = RxBool(Hive.box("AppPrefs")
+      .get("spotifyAutoFetchLyrics", defaultValue: true) ==
+      true);
+  final spotifyAutoEnrichTracks = RxBool(Hive.box("AppPrefs")
+      .get("spotifyAutoEnrichTracks", defaultValue: true) ==
+      true);
   final backgroundPlayEnabled = true.obs;
   final keepScreenAwake = false.obs;
   final restorePlaybackSession = false.obs;
   final cacheHomeScreenData = true.obs;
+  final galaxyOverlayEnabled = true.obs;
+
+  /// UI density scale: 1.0 (native) down to 0.55 (ultra compact).
+  final densityScale = 1.0.obs;
   final currentVersion = "V1.12.2";
 
   @override
@@ -129,6 +139,9 @@ class SettingsScreenController extends GetxController {
     }
     autoDownloadFavoriteSongEnabled.value =
         setBox.get("autoDownloadFavoriteSongEnabled") ?? false;
+    galaxyOverlayEnabled.value = setBox.get("galaxyOverlayEnabled") ?? true;
+    densityScale.value =
+        (setBox.get("densityScale") as num?)?.toDouble() ?? 1.0;
   }
 
   void setAppLanguage(String? val) {
@@ -273,6 +286,16 @@ class SettingsScreenController extends GetxController {
     restorePlaybackSession.value = val;
   }
 
+  void toggleSpotifyAutoFetchLyrics(bool val) {
+    setBox.put("spotifyAutoFetchLyrics", val);
+    spotifyAutoFetchLyrics.value = val;
+  }
+
+  void toggleSpotifyAutoEnrichTracks(bool val) {
+    setBox.put("spotifyAutoEnrichTracks", val);
+    spotifyAutoEnrichTracks.value = val;
+  }
+
   Future<void> toggleCacheHomeScreenData(bool val) async {
     setBox.put("cacheHomeScreenData", val);
     cacheHomeScreenData.value = val;
@@ -345,6 +368,17 @@ class SettingsScreenController extends GetxController {
   void toggleStopPlyabackOnSwipeAway(bool val) {
     setBox.put('stopPlyabackOnSwipeAway', val);
     stopPlyabackOnSwipeAway.value = val;
+  }
+
+  void toggleGalaxyOverlay(bool val) {
+    setBox.put("galaxyOverlayEnabled", val);
+    galaxyOverlayEnabled.value = val;
+  }
+
+  void setDensityScale(double val) {
+    setBox.put("densityScale", val);
+    densityScale.value = val;
+    Get.find<ThemeController>().refreshTheme();
   }
 
   Future<void> closeAllDatabases() async {

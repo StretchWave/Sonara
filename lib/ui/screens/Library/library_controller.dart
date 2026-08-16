@@ -232,6 +232,11 @@ class LibraryPlaylistsController extends GetxController
         title: "downloads".tr,
         playlistId: "SongDownloads",
         thumbnailUrl: Playlist.thumbPlaceholderUrl,
+        isCloudPlaylist: false),
+    Playlist(
+        title: "topPlayed".tr,
+        playlistId: "LIBTP",
+        thumbnailUrl: Playlist.thumbPlaceholderUrl,
         isCloudPlaylist: false)
   ];
   late RxList<Playlist> libraryPlaylists = RxList(initPlst);

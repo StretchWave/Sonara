@@ -10,6 +10,8 @@ import '/ui/screens/Search/search_screen_controller.dart';
 import '/utils/get_localization.dart';
 import '/services/downloader.dart';
 import '/services/piped_service.dart';
+import '/services/playback_stats_service.dart';
+import '/services/lastfm_service.dart';
 import 'utils/app_link_controller.dart';
 import '/services/audio_handler.dart';
 import '/services/music_service.dart';
@@ -28,6 +30,9 @@ Future<void> main() async {
   _setAppInitPrefs();
   startApplicationServices();
   Get.put<AudioHandler>(await initAudioService(), permanent: true);
+  // Start background listeners that depend on the audio handler
+  Get.find<PlaybackStatsService>();
+  Get.find<LastFmService>();
   WidgetsBinding.instance.addObserver(LifecycleHandler());
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   TerminateRestart.instance.initialize();
@@ -52,18 +57,33 @@ class MyApp extends StatelessWidget {
         fallbackLocale: const Locale("en"),
         builder: (context, child) {
           final mQuery = MediaQuery.of(context);
-          final scale =
-              mQuery.textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.1);
+          // Preserve the user's system font scale, then apply the app's
+          // density-scale preference on top (55% - 110%).
+          final baseScale = mQuery.textScaler.scale(14) / 14;
           return Stack(
             children: [
               GetX<ThemeController>(
-                builder: (controller) => MediaQuery(
-                  data: mQuery.copyWith(textScaler: scale),
-                  child: AnimatedTheme(
-                      duration: const Duration(milliseconds: 700),
-                      data: controller.themedata.value!,
-                      child: child!),
-                ),
+                builder: (controller) {
+                  // Read the observable in this GetX's own scope so the
+                  // builder registers a dependency (GetX requires every
+                  // GetX/Obx builder to read at least one observable).
+                  final themeData = controller.themedata.value!;
+                  return GetX<SettingsScreenController>(
+                    builder: (settings) {
+                      final scale =
+                          (baseScale * settings.densityScale.value)
+                              .clamp(0.55, 1.1);
+                      return MediaQuery(
+                        data: mQuery.copyWith(
+                            textScaler: TextScaler.linear(scale)),
+                        child: AnimatedTheme(
+                            duration: const Duration(milliseconds: 700),
+                            data: themeData,
+                            child: child!),
+                      );
+                    },
+                  );
+                },
               ),
               GestureDetector(
                 child: Align(
@@ -93,6 +113,8 @@ Future<void> startApplicationServices() async {
   Get.lazyPut(() => LibraryArtistsController(), fenix: true);
   Get.lazyPut(() => SettingsScreenController(), fenix: true);
   Get.lazyPut(() => Downloader(), fenix: true);
+  Get.lazyPut(() => PlaybackStatsService(), fenix: true);
+  Get.lazyPut(() => LastFmService(), fenix: true);
   if (GetPlatform.isDesktop) {
     Get.lazyPut(() => SearchScreenController(), fenix: true);
     Get.put(DesktopSystemTray());
@@ -113,6 +135,7 @@ initHive() async {
   await Hive.openBox("SongDownloads");
   await Hive.openBox('SongsUrlCache');
   await Hive.openBox("AppPrefs");
+  await Hive.openBox("LyricsOffset");
 }
 
 void _setAppInitPrefs() {

@@ -151,11 +151,28 @@ class HomeScreenController extends GetxController {
       }
 
       if (quickPicks.value.songList.isEmpty) {
+        // "Quick picks" may be missing for some sessions (e.g. new visitors
+        // get an onboarding home without song sections) — fall back to the
+        // first section that actually contains songs instead of crashing.
         final index = homeContentListMap
             .indexWhere((element) => element['title'] == "Quick picks");
-        final con = homeContentListMap.removeAt(index);
-        quickPicks.value = QuickPicks(List<MediaItem>.from(con["contents"]),
-            title: "Quick picks");
+        if (index != -1) {
+          final con = homeContentListMap.removeAt(index);
+          quickPicks.value = QuickPicks(
+              List<MediaItem>.from(con["contents"]),
+              title: "Quick picks");
+        } else {
+          final songsIndex = homeContentListMap.indexWhere((element) =>
+              element['contents'] is List &&
+              (element['contents'] as List).isNotEmpty &&
+              (element['contents'] as List).first is MediaItem);
+          if (songsIndex != -1) {
+            final con = homeContentListMap.removeAt(songsIndex);
+            quickPicks.value = QuickPicks(
+                List<MediaItem>.from(con["contents"]),
+                title: con["title"]);
+          }
+        }
       }
 
       middleContent.value = _setContentList(middleContentTemp);

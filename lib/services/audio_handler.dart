@@ -95,6 +95,14 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         Hive.box("AppPrefs").get("queueLoopModeEnabled") ?? false;
     loudnessNormalizationEnabled =
         appPrefsBox.get("loudnessNormalizationEnabled") ?? false;
+    final storedSpeed = appPrefsBox.get("playbackSpeed");
+    if (storedSpeed != null) {
+      try {
+        _player.setSpeed((storedSpeed as num).toDouble().clamp(0.25, 2.0));
+      } catch (e) {
+        printERROR("Failed to apply stored playback speed: $e");
+      }
+    }
     _listenForDurationChanges();
     if (GetPlatform.isAndroid) {
       _listenSessionIdStream();
@@ -655,6 +663,16 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
       case 'setVolume':
         _player.setVolume(extras!['value'] / 100);
+        break;
+
+      case 'setSpeed':
+        final speed = (extras!['speed'] as num).toDouble();
+        try {
+          await _player.setSpeed(speed.clamp(0.25, 2.0));
+          playbackState.add(playbackState.value.copyWith(speed: speed));
+        } catch (e) {
+          printERROR("Failed to set playback speed: $e");
+        }
         break;
 
       case 'shuffleCmd':

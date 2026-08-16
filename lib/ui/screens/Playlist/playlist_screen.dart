@@ -639,10 +639,16 @@ class PlaylistScreen extends StatelessWidget {
                                                   "SongDownloads" &&
                                               playlistController.playlist.value
                                                       .playlistId !=
-                                                  "SongsCache",
+                                                  "SongsCache" &&
+                                              playlistController.playlist.value
+                                                      .playlistId !=
+                                                  "LIBTP",
                                           isSongDeletetioFeatureRequired:
                                               !playlistController.playlist.value
-                                                  .isCloudPlaylist,
+                                                      .isCloudPlaylist &&
+                                                  playlistController.playlist
+                                                          .value.playlistId !=
+                                                      "LIBTP",
                                           itemCountTitle:
                                               "${playlistController.songList.length}",
                                           itemIcon: Icons.music_note,

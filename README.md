@@ -9,6 +9,11 @@
 # Harmony Music
 A cross platform app for music streaming made with Flutter(Android, Windows, linux).
 
+> Spotify playlist imports can optionally use the bundled server-side resolver
+> in [`backend/`](backend/README.md) — it lets users import public Spotify
+> playlists without configuring their own Spotify Developer App. Build the
+> app with `--dart-define=BACKEND_URL=<deployed-url>` to enable it.
+
 # Features
 * Ability to play song from Ytube/Ytube Music.
 * Song cache while playing

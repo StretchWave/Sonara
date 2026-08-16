@@ -9,6 +9,10 @@ import '../../widgets/cust_switch.dart';
 import '../../widgets/export_file_dialog.dart';
 import '../../widgets/backup_dialog.dart';
 import '../../widgets/restore_dialog.dart';
+import '../Spotify/spotify_import_screen.dart';
+import '../Statistics/statistics_screen.dart';
+import 'components/lastfm_settings.dart';
+import '/services/lastfm_service.dart';
 import '../Library/library_controller.dart';
 import '../../widgets/snackbar.dart';
 import '/ui/widgets/link_piped.dart';
@@ -102,7 +106,10 @@ class SettingsScreen extends StatelessWidget {
                                   : settingsController.themeModetype.value ==
                                           ThemeType.dark
                                       ? "dark".tr
-                                      : "light".tr,
+                                      : settingsController.themeModetype.value ==
+                                              ThemeType.black
+                                          ? "pureBlack".tr
+                                          : "light".tr,
                           style: Theme.of(context).textTheme.bodyMedium),
                     ),
                     onTap: () => showDialog(
@@ -202,6 +209,48 @@ class SettingsScreen extends StatelessWidget {
                                 settingsController.slidableActionEnabled.isTrue,
                             onChanged: settingsController.toggleSlidableAction),
                       )),
+                  ListTile(
+                      contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                      title: Text("galaxyOverlay".tr),
+                      subtitle: Text("galaxyOverlayDes".tr,
+                          style: Theme.of(context).textTheme.bodyMedium),
+                      trailing: Obx(
+                        () => CustSwitch(
+                            value:
+                                settingsController.galaxyOverlayEnabled.value,
+                            onChanged: settingsController.toggleGalaxyOverlay),
+                      )),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: Text("densityScale".tr),
+                    subtitle: Text("densityScaleDes".tr,
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    trailing: Obx(
+                      () => DropdownButton(
+                        dropdownColor: Theme.of(context).cardColor,
+                        underline: const SizedBox.shrink(),
+                        value: settingsController.densityScale.value,
+                        items: [
+                          for (final entry in {
+                            1.0: "native100",
+                            0.85: "compact85",
+                            0.75: "compact75",
+                            0.65: "compact65",
+                            0.55: "compact55",
+                          }.entries)
+                            DropdownMenuItem(
+                              value: entry.key,
+                              child: Text(entry.value.tr),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            settingsController.setDensityScale(value);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
                 ],
               ),
               CustomExpansionTile(
@@ -599,6 +648,121 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
               CustomExpansionTile(
+                title: "listeningStatistics".tr,
+                icon: Icons.insights,
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: Text("viewStatistics".tr),
+                    subtitle: Text(
+                      "viewStatisticsDes".tr,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    onTap: () => Get.to(() => const StatisticsScreen()),
+                  ),
+                ],
+              ),
+              CustomExpansionTile(
+                title: "Last.fm",
+                icon: Icons.audiotrack,
+                children: [
+                  Obx(() => ListTile(
+                        contentPadding:
+                            const EdgeInsets.only(left: 5, right: 10),
+                        title: Text("lastfmScrobbling".tr),
+                        subtitle: Text("lastfmScrobblingDes".tr,
+                            style: Theme.of(context).textTheme.bodyMedium),
+                        trailing: CustSwitch(
+                          value: Get.find<LastFmService>().enabled.value,
+                          onChanged:
+                              Get.find<LastFmService>().toggleEnabled,
+                        ),
+                      )),
+                  Obx(() {
+                    final service = Get.find<LastFmService>();
+                    return ListTile(
+                      contentPadding:
+                          const EdgeInsets.only(left: 5, right: 10, top: 0),
+                      title: Text("lastfmAccount".tr),
+                      subtitle: Text(
+                        service.isConnected.value
+                            ? "${service.username.value} · ${'lastfmConnected'.tr}"
+                            : service.statusMessage.value.isNotEmpty
+                                ? service.statusMessage.value
+                                : "lastfmNotConnected".tr,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      trailing: TextButton(
+                        child: Text(
+                          service.isConnected.value
+                              ? "lastfmDisconnect".tr
+                              : "lastfmConfigure".tr,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium!
+                              .copyWith(fontSize: 15),
+                        ),
+                        onPressed: () {
+                          if (service.isConnected.value) {
+                            service.disconnect();
+                          } else {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const LastFmSettingsDialog(),
+                            );
+                          }
+                        },
+                      ),
+                    );
+                  }),
+                ],
+              ),
+              CustomExpansionTile(
+                title: "importSpotifyPlaylist".tr,
+                icon: Icons.music_note,
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: Text("spotifyImportDes".tr),
+                    subtitle: Text(
+                      "spotifyImportDesSub".tr,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    onTap: () => Get.to(() => const SpotifyImportScreen()),
+                  ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: Text("spotifyAutoFetchLyrics".tr),
+                    subtitle: Text(
+                      "spotifyAutoFetchLyricsDes".tr,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    trailing: Obx(
+                      () => CustSwitch(
+                          value: settingsController
+                              .spotifyAutoFetchLyrics.value,
+                          onChanged:
+                              settingsController.toggleSpotifyAutoFetchLyrics),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: Text("spotifyAutoEnrichTracks".tr),
+                    subtitle: Text(
+                      "spotifyAutoEnrichTracksDes".tr,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    trailing: Obx(
+                      () => CustSwitch(
+                          value: settingsController
+                              .spotifyAutoEnrichTracks.value,
+                          onChanged:
+                              settingsController.toggleSpotifyAutoEnrichTracks),
+                    ),
+                  ),
+                ],
+              ),
+              CustomExpansionTile(
                   title: "${"backup".tr} & ${"restore".tr}",
                   icon: Icons.restore,
                   children: [
@@ -713,7 +877,7 @@ class ThemeSelectorDialog extends StatelessWidget {
     final settingsController = Get.find<SettingsScreenController>();
     return CommonDialog(
       child: Container(
-        height: 300,
+        height: 340,
         //color: Theme.of(context).cardColor,
         padding: const EdgeInsets.only(top: 30, left: 5, right: 30, bottom: 10),
         child: Column(children: [
@@ -744,6 +908,10 @@ class ThemeSelectorDialog extends StatelessWidget {
               label: "light".tr,
               controller: settingsController,
               value: ThemeType.light),
+          radioWidget(
+              label: "pureBlack".tr,
+              controller: settingsController,
+              value: ThemeType.black),
           Align(
               alignment: Alignment.centerRight,
               child: InkWell(

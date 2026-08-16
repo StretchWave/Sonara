@@ -7,6 +7,8 @@ import 'package:get/get.dart' as getx;
 import 'package:hive/hive.dart';
 
 import '/models/album.dart';
+import '/models/artist.dart';
+import '/models/playlist.dart';
 import '/services/utils.dart';
 import '../utils/helper.dart';
 import 'constant.dart';
@@ -24,7 +26,17 @@ class MusicServices extends getx.GetxService {
     'accept': '*/*',
     'accept-encoding': 'gzip, deflate',
     'content-type': 'application/json',
-    'content-encoding': 'gzip',
+    // Client identification headers — same set the working MetroFuse
+    // InnerTube client sends. Without them YouTube can treat the request
+    // as coming from an unknown client and degrade the responses.
+    'X-Goog-Api-Format-Version': '1',
+    'X-YouTube-Client-Name': clientId,
+    'X-YouTube-Client-Version': clientVersion,
+    'X-Goog-Client-Name': 'WEB_REMIX',
+    'X-Goog-Client-Version': clientVersion,
+    'X-Origin': 'https://music.youtube.com',
+    'Referer': 'https://music.youtube.com/',
+    'X-YouTube-Device': 'ONEPLUS_A6013',
     'origin': domain,
     'cookie': 'CONSENT=YES+1',
   };
@@ -33,7 +45,7 @@ class MusicServices extends getx.GetxService {
     'context': {
       'client': {
         "clientName": "WEB_REMIX",
-        "clientVersion": "1.20230213.01.00",
+        "clientVersion": clientVersion,
       },
       'user': {}
     }
@@ -49,9 +61,6 @@ class MusicServices extends getx.GetxService {
 
   Future<void> init() async {
     //check visitor id in data base, if not generate one , set lang code
-    final date = DateTime.now();
-    _context['context']['client']['clientVersion'] =
-        "1.${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}.01.00";
     final signatureTimestamp = getDatestamp() - 1;
     _context['playbackContext'] = {
       'contentPlaybackContext': {'signatureTimestamp': signatureTimestamp},
@@ -59,32 +68,34 @@ class MusicServices extends getx.GetxService {
 
     final appPrefsBox = Hive.box('AppPrefs');
     hlCode = appPrefsBox.get('contentLanguage') ?? "en";
+    String? visitorId;
     if (appPrefsBox.containsKey('visitorId')) {
       final visitorData = appPrefsBox.get("visitorId");
       if (visitorData != null && !isExpired(epoch: visitorData['exp'])) {
-        _headers['X-Goog-Visitor-Id'] = visitorData['id'];
+        visitorId = visitorData['id'];
         appPrefsBox.put("visitorId", {
-          'id': visitorData['id'],
+          'id': visitorId,
           'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2590200
         });
-        printINFO("Got Visitor id ($visitorData['id']) from Box");
-        return;
+        printINFO("Got Visitor id ($visitorId) from Box");
       }
     }
-
-    final visitorId = await genrateVisitorId();
-    if (visitorId != null) {
-      _headers['X-Goog-Visitor-Id'] = visitorId;
-      printINFO("New Visitor id generated ($visitorId)");
-      appPrefsBox.put("visitorId", {
-        'id': visitorId,
-        'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2592000
-      });
-      return;
+    if (visitorId == null) {
+      visitorId = await genrateVisitorId();
+      if (visitorId != null) {
+        printINFO("New Visitor id generated ($visitorId)");
+        appPrefsBox.put("visitorId", {
+          'id': visitorId,
+          'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2592000
+        });
+      } else {
+        // not able to generate in that case
+        visitorId = "CgttN24wcmd5UzNSWSi2lvq2BjIKCgJKUBIEGgAgYQ%3D%3D";
+      }
     }
-    // not able to generate in that case
-    _headers['X-Goog-Visitor-Id'] =
-        visitorId ?? "CgttN24wcmd5UzNSWSi2lvq2BjIKCgJKUBIEGgAgYQ%3D%3D";
+    _headers['X-Goog-Visitor-Id'] = visitorId;
+    // Also send it inside the client context (browse personalization)
+    _context['context']['client']['visitorData'] = visitorId;
   }
 
   set hlCode(String code) {
@@ -111,23 +122,31 @@ class MusicServices extends getx.GetxService {
   Future<Response> _sendRequest(String action, Map<dynamic, dynamic> data,
       {additionalParams = ""}) async {
     //print("$baseUrl$action$fixedParms$additionalParams          data:$data");
-    try {
-      final response =
-          await dio.post("$baseUrl$action$fixedParms$additionalParams",
-              options: Options(
-                headers: _headers,
-              ),
-              data: data);
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response =
+            await dio.post("$baseUrl$action$fixedParms$additionalParams",
+                options: Options(
+                  headers: _headers,
+                ),
+                data: data);
 
-      if (response.statusCode == 200) {
-        return response;
-      } else {
-        return _sendRequest(action, data, additionalParams: additionalParams);
+        if (response.statusCode == 200) {
+          return response;
+        }
+        // Transient server-side failure — retry with backoff instead of
+        // recursing forever on e.g. 429/403.
+        printINFO(
+            "Retrying $action after status ${response.statusCode} (attempt ${attempt + 1})");
+      } on DioException catch (e) {
+        printINFO("Request error $e (attempt ${attempt + 1})");
+        if (attempt == 2) {
+          throw NetworkError();
+        }
       }
-    } on DioException catch (e) {
-      printINFO("Error $e");
-      throw NetworkError();
+      await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
     }
+    throw NetworkError();
   }
 
   // Future<List<Map<String, dynamic>>>
@@ -328,8 +347,14 @@ class MusicServices extends getx.GetxService {
 
   dynamic getContentRelatedToSong(String videoId, String hlCode) async {
     final params = await getWatchPlaylist(videoId: videoId, onlyRelated: true);
+    final related = params['related'];
+    // Newer responses render the related tab inline without a browse
+    // endpoint, so there is nothing to fetch.
+    if (related == null) {
+      return [];
+    }
     final data = Map.from(_context);
-    data['browseId'] = params['related'];
+    data['browseId'] = related;
     data['context']['client']['hl'] = hlCode;
     final response = (await _sendRequest('browse', data)).data;
     final sections = nav(response, ['contents'] + section_list);
@@ -662,36 +687,52 @@ class MusicServices extends getx.GetxService {
 
     for (var res in results) {
       String category;
+      dynamic shelf;
       if (res['musicShelfRenderer'] != null) {
-        dynamic itemResults = res['musicShelfRenderer']['contents'];
-        String? typeFilter = filter;
-        category = "mixed"; // Just a default value
-        final mixedItems = parseSearchResults(itemResults,
-            ['artist', 'playlist', 'song', 'video', 'station'], type, category);
-        if (filter == null) {
-          for (var item in mixedItems) {
-            final itemType = item.runtimeType == MediaItem
-                ? (item.artist.split(",")[0]) + "s"
-                : "${item.runtimeType}s";
-            if (searchResults.containsKey(itemType) &&
-                (searchResults[itemType]).length < 3) {
-              (searchResults[itemType] as List).add(item);
-            } else if (!searchResults.containsKey(itemType)) {
-              searchResults[itemType] = [item];
-            }
-          }
-        } else {
-          category = nav(res, ['musicShelfRenderer', ...title_text]);
-          searchResults[category] = parseSearchResults(
-              res['musicShelfRenderer']['contents'],
-              ['artist', 'playlist', 'song', 'video', 'station'],
-              type,
-              category);
-        }
-        type = typeFilter?.substring(0, typeFilter.length - 1).toLowerCase();
+        shelf = res['musicShelfRenderer'];
+      } else if (res['itemSectionRenderer'] != null) {
+        // Current response format: results arrive as itemSectionRenderer
+        // sections wrapping musicResponsiveListItemRenderer items.
+        shelf = {'contents': res['itemSectionRenderer']['contents']};
       } else {
         continue;
       }
+      dynamic itemResults = shelf['contents'];
+      String? typeFilter = filter;
+      category = "mixed"; // Just a default value
+      // Let each item classify itself — a stale forced type (e.g. 'song'
+      // from the previous section) makes album/artist sections parse to
+      // nothing, and each section must MERGE into the category instead of
+      // overwriting it, otherwise the last empty section wins.
+      final mixedItems = parseSearchResults(itemResults,
+              ['artist', 'playlist', 'song', 'video', 'station'], null, category)
+          .where((item) =>
+              item is MediaItem ||
+              item is Album ||
+              item is Artist ||
+              item is Playlist)
+          .toList();
+      if (filter == null) {
+        for (var item in mixedItems) {
+          final itemType = getSearchResultCategory(item);
+          if (itemType == null) continue;
+          if (searchResults.containsKey(itemType) &&
+              (searchResults[itemType]).length < 3) {
+            (searchResults[itemType] as List).add(item);
+          } else if (!searchResults.containsKey(itemType)) {
+            searchResults[itemType] = [item];
+          }
+        }
+      } else {
+        category = nav(res, ['musicShelfRenderer', ...title_text]) ??
+            getFilterCategoryName(filter);
+        if (searchResults.containsKey(category)) {
+          (searchResults[category] as List).addAll(mixedItems);
+        } else {
+          searchResults[category] = mixedItems;
+        }
+      }
+      type = typeFilter?.substring(0, typeFilter.length - 1).toLowerCase();
 
       if (filter != null) {
         requestFunc(additionalParams) async =>
@@ -702,30 +743,75 @@ class MusicServices extends getx.GetxService {
             ['artist', 'playlist', 'song', 'video', 'station'], type, category);
 
         if (searchResults.containsKey(category)) {
-          final x = await getContinuations(
-              res['musicShelfRenderer'],
-              'musicShelfContinuation',
-              limit - ((searchResults[category] as List).length),
-              requestFunc,
-              parseFunc,
-              isAdditionparamReturnReq: true);
+          final continuationSource = res['musicShelfRenderer'];
+          if (continuationSource != null) {
+            final x = await getContinuations(
+                continuationSource,
+                'musicShelfContinuation',
+                limit - ((searchResults[category] as List).length),
+                requestFunc,
+                parseFunc,
+                isAdditionparamReturnReq: true);
 
-          searchResults["params"] = {
-            'data': data,
-            "type": type,
-            "category": category,
-            'additionalParams': x[1],
-          };
+            searchResults["params"] = {
+              'data': data,
+              "type": type,
+              "category": category,
+              'additionalParams': x[1],
+            };
 
-          searchResults[category] = [
-            ...(searchResults[category] as List),
-            ...(x[0])
-          ];
+            searchResults[category] = [
+              ...(searchResults[category] as List),
+              ...(x[0])
+            ];
+          } else {
+            // New format serves the full list in one page
+            searchResults["params"] = {
+              'data': data,
+              "type": type,
+              "category": category,
+              'additionalParams': '&ctoken=null&continuation=null',
+            };
+          }
         }
       }
     }
 
     return searchResults;
+  }
+
+  /// Maps a parsed search item to the category key the UI expects.
+  ///
+  /// Returns null for items that don't map to a known category.
+  String? getSearchResultCategory(dynamic item) {
+    if (item is MediaItem) {
+      final videoType = item.extras?['videoType'] ?? '';
+      return videoType == 'MUSIC_VIDEO_TYPE_ATV' ? 'Songs' : 'Videos';
+    }
+    if (item is Artist) return 'Artists';
+    if (item is Album) return 'Albums';
+    if (item is Playlist) return 'Featured playlists';
+    return null;
+  }
+
+  /// Converts a search filter value to the display category name.
+  String getFilterCategoryName(String filter) {
+    switch (filter) {
+      case 'songs':
+        return 'Songs';
+      case 'videos':
+        return 'Videos';
+      case 'albums':
+        return 'Albums';
+      case 'artists':
+        return 'Artists';
+      case 'community_playlists':
+        return 'Community playlists';
+      case 'featured_playlists':
+        return 'Featured playlists';
+      default:
+        return filter;
+    }
   }
 
   Future<Map<String, dynamic>> getSearchContinuation(Map additionalParamsNext,

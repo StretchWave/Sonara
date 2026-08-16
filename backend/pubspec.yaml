@@ -1,0 +1,19 @@
+name: synora_backend
+description: >-
+  Server-side playlist metadata resolver for the Synora (Harmony Music)
+  Flutter app. Resolves public Spotify playlists without requiring app users
+  to configure their own Spotify credentials.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  dio: ^5.7.0
+  shelf: ^1.4.1
+  shelf_router: ^1.1.4
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.24.0

@@ -11,6 +11,10 @@
             "toolArgs": [
                 // "--enable-impeller",
             ],
+            // The Synora resolver backend (anonymous Spotify resolution).
+            "dartDefines": [
+                "BACKEND_URL=http://localhost:34567"
+            ],
         },
         {
             "name": "harmonymusic (profile mode)",
@@ -20,6 +24,10 @@
             "toolArgs": [
                 // "--enable-impeller",
             ],
+            // The Synora resolver backend (anonymous Spotify resolution).
+            "dartDefines": [
+                "BACKEND_URL=http://localhost:34567"
+            ],
         },
         {
             "name": "harmonymusic (release mode)",
@@ -28,6 +36,10 @@
             "flutterMode": "release",
             "toolArgs": [
                 // "--enable-impeller",
+            ],
+            // The Synora resolver backend (anonymous Spotify resolution).
+            "dartDefines": [
+                "BACKEND_URL=http://localhost:34567"
             ],
         }
     ]

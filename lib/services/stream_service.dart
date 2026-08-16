@@ -12,7 +12,24 @@ class StreamProvider {
     final yt = YoutubeExplode();
     
     try {
-      final res = await yt.videos.streamsClient.getManifest(videoId);
+      // The manifest endpoint is flaky (intermittent null crashes inside the
+      // client) — retry a couple of times before giving up.
+      StreamManifest? res;
+      Object? lastError;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await yt.videos.streamsClient.getManifest(videoId);
+          break;
+        } catch (e) {
+          lastError = e;
+          if (attempt < 2) {
+            await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+          }
+        }
+      }
+      if (res == null) {
+        throw lastError ?? Exception('Could not fetch stream manifest');
+      }
       final audio = res.audioOnly;
       return StreamProvider(
           playable: true,

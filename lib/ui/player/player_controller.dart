@@ -57,12 +57,17 @@ class PlayerController extends GetxController
   final isQueueLoopModeEnabled = false.obs;
   final isLoopModeEnabled = false.obs;
   final isShuffleModeEnabled = false.obs;
+  final playbackSpeed = 1.0.obs;
   final currentSong = Rxn<MediaItem>();
   final isCurrentSongFav = false.obs;
   final playinfrom = PlaylingFrom(type: PlaylingFromType.SELECTION).obs;
   final showLyricsflag = false.obs;
   final isLyricsLoading = false.obs;
   final lyricsMode = 0.obs;
+
+  /// Resync offset (ms) applied to synced lyrics of the current song.
+  /// Positive values delay the lyrics.
+  final lyricsOffsetMs = 0.obs;
   bool isDesktopLyricsDialogOpen = false;
   // 0 for play, 1 for pause, 2 for blank
   final gesturePlayerVisibleState = 2.obs;
@@ -112,6 +117,8 @@ class PlayerController extends GetxController
     isShuffleModeEnabled.value = appPrefs.get("isShuffleModeEnabled") ?? false;
     isQueueLoopModeEnabled.value =
         appPrefs.get("queueLoopModeEnabled") ?? false;
+    playbackSpeed.value =
+        (appPrefs.get("playbackSpeed") as num?)?.toDouble() ?? 1.0;
 
     if (GetPlatform.isDesktop) {
       setVolume(appPrefs.get("volume") ?? 100);
@@ -268,6 +275,8 @@ class PlayerController extends GetxController
           await _addRadioContinuation(radioInitiatorItem!);
         }
         lyrics.value = {"synced": "", "plainLyrics": ""};
+        lyricsOffsetMs.value =
+            Hive.box("LyricsOffset").get(mediaItem.id) ?? 0;
         showLyricsflag.value = false;
         if (isDesktopLyricsDialogOpen) {
           Navigator.pop(Get.context!);
@@ -645,6 +654,14 @@ class PlayerController extends GetxController
     await Hive.box("AppPrefs").put("volume", value);
   }
 
+  /// Sets the playback speed (0.25x - 2.0x) for varispeed playback.
+  Future<void> setPlaybackSpeed(double value) async {
+    final clamped = value.clamp(0.25, 2.0).toDouble();
+    playbackSpeed.value = clamped;
+    await _audioHandler.customAction("setSpeed", {"speed": clamped});
+    await Hive.box("AppPrefs").put("playbackSpeed", clamped);
+  }
+
   Future<void> mute() async {
     int? vol;
     if (volume.value != 0) {
@@ -763,6 +780,20 @@ class PlayerController extends GetxController
   void changeLyricsMode(int? val) {
     Hive.box("AppPrefs").put("lyricsMode", val);
     lyricsMode.value = val!;
+  }
+
+  /// Sets the synced-lyrics resync offset (ms) for the current song.
+  /// Positive values delay the lyrics; negative values show them earlier.
+  Future<void> setLyricsOffset(int ms) async {
+    final clamped = ms.clamp(-10000, 10000);
+    lyricsOffsetMs.value = clamped;
+    final song = currentSong.value;
+    if (song == null) return;
+    await Hive.box("LyricsOffset").put(song.id, clamped);
+  }
+
+  void resetLyricsOffset() {
+    setLyricsOffset(0);
   }
 
   void sleepEndOfSong() {

@@ -1,7 +1,6 @@
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:ionicons/ionicons.dart';
 import 'package:widget_marquee/widget_marquee.dart';
 
 import '/ui/player/components/animated_play_button.dart';
@@ -118,7 +117,7 @@ class PlayerControlWidget extends StatelessWidget {
               IconButton(
                   onPressed: playerController.toggleShuffleMode,
                   icon: Obx(() => Icon(
-                        Ionicons.shuffle,
+                        Icons.shuffle,
                         color: playerController.isShuffleModeEnabled.value
                             ? Theme.of(context).textTheme.titleLarge!.color
                             : Theme.of(context)
@@ -130,6 +129,7 @@ class PlayerControlWidget extends StatelessWidget {
               _previousButton(playerController, context),
               const CircleAvatar(radius: 35, child: AnimatedPlayButton(key: Key("playButton"),)),
               _nextButton(playerController, context),
+              _speedButton(playerController, context),
               Obx(() {
                 return IconButton(
                     onPressed: playerController.toggleLoopMode,
@@ -147,6 +147,54 @@ class PlayerControlWidget extends StatelessWidget {
             ],
           ),
         ]);
+  }
+
+  /// Varispeed button: shows the current speed and opens a picker.
+  Widget _speedButton(PlayerController playerController, BuildContext context) {
+    return Obx(() {
+      final speed = playerController.playbackSpeed.value;
+      final speedText = speed == speed.roundToDouble()
+          ? "${speed.toInt()}x"
+          : "${speed}x";
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => showModalBottomSheet(
+            constraints: const BoxConstraints(maxWidth: 500),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(10.0)),
+            ),
+            isScrollControlled: true,
+            context: playerController.homeScaffoldkey.currentState!.context,
+            barrierColor: Colors.transparent.withAlpha(100),
+            builder: (context) => _SpeedSelectorSheet(
+              currentSpeed: speed,
+              onSelected: playerController.setPlaybackSpeed,
+            ),
+          ),
+          child: Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(context).textTheme.titleMedium!.color!,
+                width: 1.2,
+              ),
+            ),
+            child: Text(
+              speedText,
+              style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                    color: Theme.of(context).textTheme.titleMedium!.color,
+                    fontSize: 12,
+                  ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 
 
@@ -180,4 +228,55 @@ Widget _nextButton(PlayerController playerController, BuildContext context) {
         iconSize: 30,
         onPressed: isLastSong ? null : playerController.next);
   });
+}
+
+/// Bottom sheet with the available playback speeds.
+class _SpeedSelectorSheet extends StatelessWidget {
+  const _SpeedSelectorSheet({
+    required this.currentSpeed,
+    required this.onSelected,
+  });
+
+  static const List<double> speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+  final double currentSpeed;
+  final ValueChanged<double> onSelected;
+
+  String _label(double speed) => speed == speed.roundToDouble()
+      ? "${speed.toInt()}.0x"
+      : "${speed}x";
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: Get.mediaQuery.padding.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.speed),
+            title: Text("playbackSpeed".tr),
+          ),
+          const Divider(),
+          for (final speed in speeds)
+            ListTile(
+              onTap: () {
+                Navigator.of(context).pop();
+                onSelected(speed);
+              },
+              leading: Icon(
+                speed == currentSpeed
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+                size: 20,
+              ),
+              title: Text(
+                _label(speed),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

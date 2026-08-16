@@ -1,0 +1,861 @@
+/**
+ * Metrolist Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.metrolist.music.ui.player
+
+import android.content.Context
+import android.graphics.Matrix
+import android.view.TextureView
+import android.view.View
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import com.metrolist.music.LocalListenTogetherManager
+import com.metrolist.music.LocalPlayerConnection
+import com.metrolist.music.R
+import com.metrolist.music.constants.CropAlbumArtKey
+import com.metrolist.music.constants.HidePlayerThumbnailKey
+import com.metrolist.music.constants.PlayerBackgroundStyle
+import com.metrolist.music.constants.PlayerBackgroundStyleKey
+import com.metrolist.music.constants.PlayerHorizontalPadding
+import com.metrolist.music.constants.SeekExtraSeconds
+import com.metrolist.music.constants.SwipeThumbnailKey
+import com.metrolist.music.constants.ThumbnailCornerRadius
+import com.metrolist.music.listentogether.RoomRole
+import com.metrolist.music.ui.component.CastButton
+import com.metrolist.music.utils.rememberEnumPreference
+import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.delay
+import okhttp3.OkHttpClient
+
+/**
+ * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
+ * All values are computed once and cached.
+ */
+@Immutable
+data class ThumbnailDimensions(
+    val itemWidth: Dp,
+    val containerSize: Dp,
+    val thumbnailSize: Dp,
+    val cornerRadius: Dp
+)
+
+/**
+ * Cached media items data to prevent recalculation on every recomposition.
+ */
+@Immutable
+data class MediaItemsData(
+    val items: List<MediaItem>,
+    val currentIndex: Int
+)
+
+/**
+ * Calculate thumbnail dimensions once based on container size.
+ * This function is marked as @Stable to indicate it produces stable results.
+ * In landscape mode, uses the smaller dimension (height) to ensure square thumbnail fits.
+ */
+@Stable
+private fun calculateThumbnailDimensions(
+    containerWidth: Dp,
+    containerHeight: Dp = containerWidth,
+    horizontalPadding: Dp = PlayerHorizontalPadding,
+    cornerRadius: Dp = ThumbnailCornerRadius,
+    isLandscape: Boolean = false
+): ThumbnailDimensions {
+    // In landscape, use height as the constraining dimension for a square thumbnail
+    val effectiveSize = if (isLandscape) {
+        minOf(containerWidth, containerHeight) - (horizontalPadding * 2)
+    } else {
+        containerWidth - (horizontalPadding * 2)
+    }
+    return ThumbnailDimensions(
+        itemWidth = containerWidth,
+        containerSize = containerWidth,
+        thumbnailSize = effectiveSize,
+        cornerRadius = cornerRadius * 2
+    )
+}
+
+/**
+ * Get media items for the thumbnail carousel.
+ * Calculates previous, current, and next items based on shuffle mode.
+ */
+@Stable
+private fun getMediaItems(
+    player: Player,
+    swipeThumbnail: Boolean
+): MediaItemsData {
+    val timeline = player.currentTimeline
+    val currentIndex = player.currentMediaItemIndex
+    val shuffleModeEnabled = player.shuffleModeEnabled
+    
+    val currentMediaItem = try {
+        player.currentMediaItem
+    } catch (_: Exception) { null }
+    
+    val previousMediaItem = if (swipeThumbnail && !timeline.isEmpty) {
+        val previousIndex = timeline.getPreviousWindowIndex(
+            currentIndex,
+            Player.REPEAT_MODE_OFF,
+            shuffleModeEnabled
+        )
+        if (previousIndex != C.INDEX_UNSET) {
+            try { player.getMediaItemAt(previousIndex) } catch (_: Exception) { null }
+        } else null
+    } else null
+
+    val nextMediaItem = if (swipeThumbnail && !timeline.isEmpty) {
+        val nextIndex = timeline.getNextWindowIndex(
+            currentIndex,
+            Player.REPEAT_MODE_OFF,
+            shuffleModeEnabled
+        )
+        if (nextIndex != C.INDEX_UNSET) {
+            try { player.getMediaItemAt(nextIndex) } catch (_: Exception) { null }
+        } else null
+    } else null
+
+    val items = listOfNotNull(previousMediaItem, currentMediaItem, nextMediaItem)
+    val currentMediaIndex = items.indexOf(currentMediaItem)
+    
+    return MediaItemsData(items, currentMediaIndex)
+}
+
+/**
+ * Get text color based on player background style.
+ * Computed once per background style change.
+ */
+@Stable
+@Composable
+private fun getTextColor(playerBackground: PlayerBackgroundStyle): Color {
+    return when (playerBackground) {
+        PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
+        PlayerBackgroundStyle.BLUR -> Color.White
+        PlayerBackgroundStyle.GALAXY_BLUR -> Color.White
+        PlayerBackgroundStyle.GRADIENT -> Color.White
+        PlayerBackgroundStyle.MOVING_BLUR -> Color.White
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Thumbnail(
+    modifier: Modifier = Modifier,
+    isLandscape: Boolean = false,
+    isListenTogetherGuest: Boolean = false,
+    artworkAlpha: Float = 1f,
+    isPlayerExpanded: () -> Boolean = { true },
+) {
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val layoutDirection = LocalLayoutDirection.current
+
+    // Collect states
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+    val error by playerConnection.error.collectAsStateWithLifecycle()
+    val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
+    val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
+    val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
+    val appleCanvasUrl by playerConnection.service.currentAppleCanvasUrl.collectAsStateWithLifecycle()
+    val appleTallCanvasUrl by playerConnection.service.currentAppleTallCanvasUrl.collectAsStateWithLifecycle()
+    val tidalCanvasUrl by playerConnection.service.currentTidalCanvasUrl.collectAsStateWithLifecycle()
+    val embeddedCanvasUrl by playerConnection.service.currentEmbeddedCanvasUrl.collectAsStateWithLifecycle()
+    val preferredArtworkUrl by playerConnection.service.currentPreferredArtworkUrl.collectAsStateWithLifecycle()
+
+    val bestCanvasUrl by remember(appleTallCanvasUrl, appleCanvasUrl, tidalCanvasUrl, embeddedCanvasUrl, isLandscape) {
+        derivedStateOf {
+            if (isLandscape) {
+                appleCanvasUrl ?: tidalCanvasUrl ?: embeddedCanvasUrl
+            } else {
+                appleTallCanvasUrl ?: appleCanvasUrl ?: tidalCanvasUrl ?: embeddedCanvasUrl
+            }
+        }
+    }
+
+    // Preferences - computed once
+    // Disable swipe for Listen Together guests
+    val swipeThumbnailPref by rememberPreference(SwipeThumbnailKey, true)
+    val swipeThumbnail = swipeThumbnailPref && !isListenTogetherGuest
+    val hidePlayerThumbnail by rememberPreference(HidePlayerThumbnailKey, false)
+    val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
+    val playerBackground by rememberEnumPreference(
+        key = PlayerBackgroundStyleKey,
+        defaultValue = PlayerBackgroundStyle.DEFAULT
+    )
+    
+    // Pre-calculate text color based on background style
+    val textBackgroundColor = getTextColor(playerBackground)
+    
+    // Grid state
+    val thumbnailLazyGridState = rememberLazyGridState()
+    
+    // Calculate media items data - memoized
+    val mediaItemsData by remember(
+        playerConnection.player.currentMediaItemIndex,
+        playerConnection.player.shuffleModeEnabled,
+        swipeThumbnail,
+        mediaMetadata
+    ) {
+        derivedStateOf {
+            getMediaItems(playerConnection.player, swipeThumbnail)
+        }
+    }
+    
+    val mediaItems = mediaItemsData.items
+    val currentMediaIndex = mediaItemsData.currentIndex
+
+    // Snap behavior - created once per grid state
+    val thumbnailSnapLayoutInfoProvider = remember(thumbnailLazyGridState) {
+        ThumbnailSnapLayoutInfoProvider(
+            lazyGridState = thumbnailLazyGridState,
+            positionInLayout = { layoutSize, itemSize ->
+                (layoutSize / 2f - itemSize / 2f)
+            },
+            velocityThreshold = 500f
+        )
+    }
+
+    // Current item tracking - derived state for efficiency
+    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
+    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
+
+    // Handle swipe to change song
+    LaunchedEffect(itemScrollOffset) {
+        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
+
+        if (currentItem > currentMediaIndex && canSkipNext) {
+            playerConnection.seekToNext()
+        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
+            playerConnection.seekToPrevious()
+        }
+    }
+
+    // Update position when song changes
+    LaunchedEffect(mediaMetadata, canSkipPrevious, canSkipNext) {
+        val index = maxOf(0, currentMediaIndex)
+        if (index >= 0 && index < mediaItems.size) {
+            try {
+                thumbnailLazyGridState.animateScrollToItem(index)
+            } catch (_: Exception) {
+                thumbnailLazyGridState.scrollToItem(index)
+            }
+        }
+    }
+
+    LaunchedEffect(playerConnection.player.currentMediaItemIndex) {
+        val index = mediaItemsData.currentIndex
+        if (index >= 0 && index != currentItem) {
+            thumbnailLazyGridState.scrollToItem(index)
+        }
+    }
+
+    // Seek effect state
+    var showSeekEffect by remember { mutableStateOf(false) }
+    var seekDirection by remember { mutableStateOf("") }
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                // Use hardware layer for entire Thumbnail to ensure smooth 120Hz animations
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+    ) {
+        // Error view
+        AnimatedVisibility(
+            visible = error != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .padding(32.dp)
+                .align(Alignment.Center),
+        ) {
+            error?.let { playbackError ->
+                PlaybackError(
+                    error = playbackError,
+                    retry = playerConnection.player::prepare,
+                )
+            }
+        }
+
+        // Main thumbnail view
+        AnimatedVisibility(
+            visible = error == null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (!isLandscape) Modifier.statusBarsPadding() else Modifier),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = if (isLandscape) Arrangement.Center else Arrangement.Top
+            ) {
+                // Now Playing header - hide in landscape mode
+                if (!isLandscape) {
+                    ThumbnailHeader(
+                        queueTitle = queueTitle,
+                        albumTitle = mediaMetadata?.album?.title,
+                        textColor = textBackgroundColor
+                    )
+                }
+                
+                // Thumbnail content
+                BoxWithConstraints(
+                    contentAlignment = Alignment.Center,
+                    modifier = if (isLandscape) {
+                        Modifier.weight(1f, false)
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                ) {
+                    // Calculate dimensions once per size change, considering landscape mode
+                    val dimensions = remember(maxWidth, maxHeight, isLandscape) {
+                        calculateThumbnailDimensions(
+                            containerWidth = maxWidth,
+                            containerHeight = maxHeight,
+                            isLandscape = isLandscape
+                        )
+                    }
+
+                    // Remember the onSeek callback to prevent recomposition
+                    val onSeekCallback = remember {
+                        { direction: String, showEffect: Boolean ->
+                            seekDirection = direction
+                            showSeekEffect = showEffect
+                        }
+                    }
+                    
+                    // Derive scroll enabled state to prevent unnecessary recomposition
+                    val isScrollEnabled by remember(swipeThumbnail) {
+                        derivedStateOf { swipeThumbnail && isPlayerExpanded() }
+                    }
+                    
+                    LazyHorizontalGrid(
+                        state = thumbnailLazyGridState,
+                        rows = GridCells.Fixed(1),
+                        flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
+                        userScrollEnabled = isScrollEnabled,
+                        modifier = if (isLandscape) {
+                            Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
+                        } else {
+                            Modifier.fillMaxSize()
+                        }
+                    ) {
+                        items(
+                            items = mediaItems,
+                            key = { item -> 
+                                item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
+                            }
+                        ) { item ->
+                            ThumbnailItem(
+                                item = item,
+                                dimensions = dimensions,
+                                hidePlayerThumbnail = hidePlayerThumbnail,
+                                cropAlbumArt = cropAlbumArt,
+                                textBackgroundColor = textBackgroundColor,
+                                layoutDirection = layoutDirection,
+                                onSeek = onSeekCallback,
+                                playerConnection = playerConnection,
+                                isLandscape = isLandscape,
+                                isListenTogetherGuest = isListenTogetherGuest,
+                                currentMediaId = mediaMetadata?.id,
+                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl,
+                                currentCanvasUrl = bestCanvasUrl,
+                                currentPreferredArtworkUrl = preferredArtworkUrl,
+                                artworkAlpha = artworkAlpha,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Seek effect
+        LaunchedEffect(showSeekEffect) {
+            if (showSeekEffect) {
+                delay(1000)
+                showSeekEffect = false
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showSeekEffect,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            SeekEffectOverlay(seekDirection = seekDirection)
+        }
+    }
+}
+
+/**
+ * Header component showing "Now Playing" and queue/album title.
+ */
+@Composable
+private fun ThumbnailHeader(
+    modifier: Modifier = Modifier,
+    queueTitle: String?,
+    albumTitle: String?,
+    textColor: Color,
+) {
+    val listenTogetherManager = LocalListenTogetherManager.current
+    val listenTogetherRoleState = listenTogetherManager?.role?.collectAsStateWithLifecycle(initialValue = RoomRole.NONE)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 48.dp)
+        ) {
+            // Listen Together indicator
+            if (listenTogetherRoleState?.value != RoomRole.NONE) {
+                Text(
+                    text = if (listenTogetherRoleState?.value == RoomRole.HOST) "Hosting Listen Together" else "Listening Together",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textColor
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.now_playing),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textColor
+                )
+            }
+            val playingFrom = queueTitle ?: albumTitle
+            if (!playingFrom.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = playingFrom,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textColor.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee()
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Individual thumbnail item in the carousel.
+ */
+@Composable
+private fun ThumbnailItem(
+    modifier: Modifier = Modifier,
+    item: MediaItem,
+    dimensions: ThumbnailDimensions,
+    hidePlayerThumbnail: Boolean,
+    cropAlbumArt: Boolean,
+    textBackgroundColor: Color,
+    layoutDirection: LayoutDirection,
+    onSeek: (String, Boolean) -> Unit,
+    playerConnection: com.metrolist.music.playback.PlayerConnection,
+    isLandscape: Boolean = false,
+    isListenTogetherGuest: Boolean = false,
+    currentMediaId: String? = null,
+    currentMediaThumbnail: String? = null,
+    currentCanvasUrl: String? = null,
+    currentPreferredArtworkUrl: String? = null,
+    artworkAlpha: Float = 1f,
+) {
+    val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
+    var skipMultiplier by remember { mutableIntStateOf(1) }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+
+    Box(
+        modifier = modifier
+            .then(
+                if (isLandscape) {
+                    Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
+                } else {
+                    Modifier
+                        .width(dimensions.itemWidth)
+                        .fillMaxSize()
+                }
+            )
+            .padding(horizontal = PlayerHorizontalPadding)
+            .graphicsLayer {
+                // Render entire thumbnail item on separate hardware layer for smooth animations
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        if (isListenTogetherGuest) return@detectTapGestures
+
+                        val currentPosition = playerConnection.player.currentPosition
+                        val duration = playerConnection.player.duration
+
+                        val now = System.currentTimeMillis()
+                        if (incrementalSeekSkipEnabled && now - lastTapTime < 1000) {
+                            skipMultiplier++
+                        } else {
+                            skipMultiplier = 1
+                        }
+                        lastTapTime = now
+
+                        val skipAmount = 5000 * skipMultiplier
+
+                        val isLeftSide = (layoutDirection == LayoutDirection.Ltr && offset.x < size.width / 2) ||
+                                (layoutDirection == LayoutDirection.Rtl && offset.x > size.width / 2)
+
+                        if (isLeftSide) {
+                            playerConnection.player.seekTo((currentPosition - skipAmount).coerceAtLeast(0))
+                            onSeek("-${skipAmount / 1000} seconds backward", true)
+                        } else {
+                            playerConnection.player.seekTo((currentPosition + skipAmount).coerceAtMost(duration))
+                            onSeek("+${skipAmount / 1000} seconds forward", true)
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(dimensions.thumbnailSize)
+                .clip(RoundedCornerShape(dimensions.cornerRadius))
+        ) {
+            if (hidePlayerThumbnail) {
+                HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
+            } else {
+                val artworkUriToUse =
+                    when {
+                        item.mediaId == currentMediaId && !currentPreferredArtworkUrl.isNullOrBlank() -> currentPreferredArtworkUrl
+                        item.mediaId == currentMediaId && !currentMediaThumbnail.isNullOrBlank() -> currentMediaThumbnail
+                        else -> item.mediaMetadata.artworkUri?.toString()
+                    }
+
+                if (item.mediaId == currentMediaId && !currentCanvasUrl.isNullOrBlank()) {
+                    CanvasVideo(
+                        canvasUrl = currentCanvasUrl,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = artworkAlpha.coerceIn(0f, 1f)
+                                },
+                    )
+                } else {
+                    ThumbnailImage(
+                        artworkUri = artworkUriToUse,
+                        cropArtwork = cropAlbumArt,
+                        modifier =
+                            Modifier.graphicsLayer {
+                                alpha = artworkAlpha.coerceIn(0f, 1f)
+                            },
+                    )
+                }
+            }
+            
+            // Cast button at top-right corner of thumbnail
+            CastButton(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                tintColor = textBackgroundColor
+            )
+        }
+    }
+}
+
+/**
+ * Placeholder shown when thumbnail is hidden.
+ */
+@Composable
+private fun HiddenThumbnailPlaceholder(
+    textBackgroundColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.small_icon),
+            contentDescription = stringResource(R.string.hide_player_thumbnail),
+            tint = textBackgroundColor.copy(alpha = 0.7f),
+            modifier = Modifier.size(120.dp)
+        )
+    }
+}
+
+/**
+ * Actual thumbnail image with caching and hardware layer rendering.
+ */
+@Composable
+private fun ThumbnailImage(
+    artworkUri: String?,
+    cropArtwork: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                // Use offscreen compositing for hardware acceleration during animations
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(artworkUri)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .networkCachePolicy(CachePolicy.ENABLED)
+                .build(),
+            contentDescription = null,
+            contentScale = if (cropArtwork) ContentScale.Crop else ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+fun CanvasVideo(
+    canvasUrl: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val player = remember(canvasUrl) {
+        val isRemoteCanvas =
+            canvasUrl.startsWith("http://", ignoreCase = true) ||
+                canvasUrl.startsWith("https://", ignoreCase = true)
+
+        val dataSourceFactory = if (isRemoteCanvas) {
+            OkHttpDataSource.Factory(OkHttpClient())
+                .setDefaultRequestProperties(
+                    mapOf(
+                        "Origin" to "https://music.apple.com",
+                        "Referer" to "https://music.apple.com/",
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    )
+                )
+        } else {
+            DefaultDataSource.Factory(context)
+        }
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
+
+        val mediaItem = MediaItem.Builder()
+            .setUri(canvasUrl)
+            .apply {
+                if (canvasUrl.contains(".m3u8")) {
+                    setMimeType(MimeTypes.APPLICATION_M3U8)
+                }
+            }
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setTrackSelector(createCanvasTrackSelector(context))
+            .build()
+            .apply {
+                setAudioAttributes(AudioAttributes.DEFAULT, false)
+                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                repeatMode = Player.REPEAT_MODE_ONE
+                volume = 0f
+                playWhenReady = true
+                setMediaItem(mediaItem)
+                prepare()
+            }
+    }
+
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> player.play()
+                Lifecycle.Event.ON_PAUSE -> player.pause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            TextureView(ctx).also { textureView ->
+                val listener = object : Player.Listener, View.OnLayoutChangeListener {
+                    private var videoWidth = 0
+                    private var videoHeight = 0
+
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        videoWidth = videoSize.width
+                        videoHeight = videoSize.height
+                        applyMatrix()
+                    }
+
+                    override fun onLayoutChange(
+                        v: View, l: Int, t: Int, r: Int, b: Int,
+                        ol: Int, ot: Int, or: Int, ob: Int
+                    ) {
+                        applyMatrix()
+                    }
+
+                    private fun applyMatrix() {
+                        if (videoWidth <= 0 || videoHeight <= 0) return
+                        val viewWidth = textureView.width.toFloat()
+                        val viewHeight = textureView.height.toFloat()
+                        if (viewWidth <= 0 || viewHeight <= 0) return
+
+                        val videoAspect = videoWidth.toFloat() / videoHeight
+                        val viewAspect = viewWidth / viewHeight
+
+                        val scaleX: Float
+                        val scaleY: Float
+
+                        if (videoAspect > viewAspect) {
+                            scaleX = videoAspect / viewAspect
+                            scaleY = 1f
+                        } else {
+                            scaleX = 1f
+                            scaleY = viewAspect / videoAspect
+                        }
+
+                        val matrix = Matrix()
+                        matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
+                        textureView.setTransform(matrix)
+                    }
+                }
+                textureView.addOnLayoutChangeListener(listener)
+                player.addListener(listener)
+                textureView.tag = listener
+            }
+        },
+        update = { textureView ->
+            player.setVideoTextureView(textureView)
+        },
+        onRelease = { textureView ->
+            player.clearVideoTextureView(textureView)
+            val listener = textureView.tag as? Player.Listener
+            if (listener != null) {
+                player.removeListener(listener)
+            }
+            if (listener is View.OnLayoutChangeListener) {
+                textureView.removeOnLayoutChangeListener(listener)
+            }
+        },
+        modifier = modifier.fillMaxSize(),
+    )
+}
+
+fun createCanvasTrackSelector(context: Context): DefaultTrackSelector =
+    DefaultTrackSelector(context).apply {
+        setParameters(
+            buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .setForceHighestSupportedBitrate(true)
+                .build(),
+        )
+    }
+
+/**
+ * Seek effect overlay showing seek direction.
+ */
+@Composable
+private fun SeekEffectOverlay(
+    seekDirection: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = seekDirection,
+        color = Color.White,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+            .padding(8.dp)
+    )
+}

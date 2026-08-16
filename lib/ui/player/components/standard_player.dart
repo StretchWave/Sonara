@@ -6,8 +6,10 @@ import 'package:get/get.dart';
 
 import '../../widgets/songinfo_bottom_sheet.dart';
 import '../player_controller.dart';
+import '../../screens/Settings/settings_screen_controller.dart';
 import 'albumart_lyrics.dart';
 import 'backgroud_image.dart';
+import 'galaxy_background.dart';
 import 'lyrics_switch.dart';
 import 'player_control.dart';
 
@@ -81,6 +83,11 @@ class StandardPlayer extends StatelessWidget {
             ],
           ),
         ),
+
+        /// Stack child
+        /// Galaxy star overlay on top of the blurred background
+        if (Get.find<SettingsScreenController>().galaxyOverlayEnabled.isTrue)
+          const Positioned.fill(child: GalaxyOverlay()),
 
         /// Stack child
         /// Player content in landscape mode
