@@ -17,7 +17,12 @@ class HMStreamingData {
     qualityIndex = index;
   }
 
-  Audio? get audio => qualityIndex == 0 ? lowQualityAudio : highQualityAudio;
+  Audio? get audio {
+    if (qualityIndex == 0 && lowQualityAudio != null) return lowQualityAudio;
+    // Fall back to whichever format is present so a missing "low" or "high"
+    // entry never leaves playback with a null URL.
+    return highQualityAudio ?? lowQualityAudio;
+  }
 
   factory HMStreamingData.fromJson(json) {
     if(!json['playable']) {

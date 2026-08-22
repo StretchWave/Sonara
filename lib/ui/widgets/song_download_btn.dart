@@ -5,6 +5,7 @@ import 'package:sonara/services/downloader.dart';
 import 'package:sonara/ui/player/player_controller.dart';
 import 'package:hive/hive.dart';
 
+import 'download_format_sheet.dart';
 import 'loader.dart';
 import 'snackbar.dart';
 
@@ -78,8 +79,8 @@ class SongDownloadButton extends StatelessWidget {
                             ScaffoldMessenger.of(context).showSnackBar(snackbar(
                                 context, "songAlreadyOfflineAlert".tr,
                                 size: SanckBarSize.BIG));
-                          } else {
-                            downloader.download(song);
+                          } else if (context.mounted) {
+                            showDownloadFormatSheet(context, song);
                           }
                         }));
                       },

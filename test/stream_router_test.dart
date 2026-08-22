@@ -86,8 +86,9 @@ void main() {
     expect(result.audioFormats!.single.url, 'https://b/stream');
   });
 
-  test('default router contains only the YouTube provider', () {
-    expect(StreamRouter.instance.providers.single.id, 'youtube_music');
+  test('default router contains YouTube and SoundCloud providers', () {
+    expect(StreamRouter.instance.providers.map((p) => p.id),
+        ['youtube_music', 'soundcloud']);
   });
 
   test('passes the song query through to providers', () async {

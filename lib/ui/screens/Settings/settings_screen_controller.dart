@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:sonara/services/permission_service.dart';
+import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -115,6 +116,41 @@ class SettingsScreenController extends GetxController {
     setBox.put("qobuzQuality", val);
   }
 
+  final soundcloudEnabled = RxBool(
+      Hive.box("AppPrefs").get("soundcloudEnabled", defaultValue: true) == true);
+
+  void toggleSoundCloudEnabled(bool val) {
+    soundcloudEnabled.value = val;
+    setBox.put("soundcloudEnabled", val);
+  }
+
+  /// Free lossless FLAC fallback from archive.org.
+  final internetArchiveEnabled = RxBool(Hive.box("AppPrefs")
+          .get("internetArchiveEnabled", defaultValue: true) ==
+      true);
+
+  void toggleInternetArchiveEnabled(bool val) {
+    internetArchiveEnabled.value = val;
+    setBox.put("internetArchiveEnabled", val);
+  }
+
+  /// Provider priority order — the first entry is tried first.
+  final providerOrder = RxList<String>(_storedProviderOrder());
+
+  static List<String> _storedProviderOrder() {
+    final stored = Hive.box('AppPrefs').get('providerOrder');
+    if (stored is List && stored.whereType<String>().isNotEmpty) {
+      return stored.whereType<String>().toList();
+    }
+    return List.of(StreamRouteConfig.defaultProviderOrder);
+  }
+
+  void setProviderOrder(List<String> order) {
+    final clean = order.where((id) => id.isNotEmpty).toList();
+    providerOrder.value = clean;
+    setBox.put('providerOrder', clean);
+  }
+
   final tidalEnabled = RxBool(
       Hive.box("AppPrefs").get("tidalEnabled", defaultValue: false) == true);
   final tidalEndpoints = RxString((Hive.box("AppPrefs")
@@ -137,6 +173,90 @@ class SettingsScreenController extends GetxController {
   void changeTidalQuality(String val) {
     tidalQuality.value = val;
     setBox.put("tidalQuality", val);
+  }
+
+  // ---- Deezer -----------------------------------------------------------
+  final deezerEnabled = RxBool(
+      Hive.box("AppPrefs").get("deezerEnabled", defaultValue: false) == true);
+  final deezerEndpoints = RxString((Hive.box("AppPrefs")
+          .get("deezerEndpoints", defaultValue: "") as String?) ??
+      "");
+  final deezerQuality = RxString((Hive.box("AppPrefs")
+          .get("deezerQuality", defaultValue: "FLAC") as String?) ??
+      "FLAC");
+
+  void toggleDeezerEnabled(bool val) {
+    deezerEnabled.value = val;
+    setBox.put("deezerEnabled", val);
+  }
+
+  void changeDeezerEndpoints(String val) {
+    deezerEndpoints.value = val;
+    setBox.put("deezerEndpoints", val);
+  }
+
+  void changeDeezerQuality(String val) {
+    deezerQuality.value = val;
+    setBox.put("deezerQuality", val);
+  }
+
+  // ---- Apple Music ------------------------------------------------------
+  final appleEnabled = RxBool(
+      Hive.box("AppPrefs").get("appleEnabled", defaultValue: false) == true);
+  final appleEndpoints = RxString((Hive.box("AppPrefs")
+          .get("appleEndpoints", defaultValue: "") as String?) ??
+      "");
+
+  void toggleAppleEnabled(bool val) {
+    appleEnabled.value = val;
+    setBox.put("appleEnabled", val);
+  }
+
+  void changeAppleEndpoints(String val) {
+    appleEndpoints.value = val;
+    setBox.put("appleEndpoints", val);
+  }
+
+  // ---- Amazon Music -----------------------------------------------------
+  final amazonEnabled = RxBool(
+      Hive.box("AppPrefs").get("amazonEnabled", defaultValue: false) == true);
+  final amazonEndpoints = RxString((Hive.box("AppPrefs")
+          .get("amazonEndpoints", defaultValue: "") as String?) ??
+      "");
+  final amazonQuality = RxString((Hive.box("AppPrefs")
+          .get("amazonQuality", defaultValue: "HI_RES") as String?) ??
+      "HI_RES");
+
+  void toggleAmazonEnabled(bool val) {
+    amazonEnabled.value = val;
+    setBox.put("amazonEnabled", val);
+  }
+
+  void changeAmazonEndpoints(String val) {
+    amazonEndpoints.value = val;
+    setBox.put("amazonEndpoints", val);
+  }
+
+  void changeAmazonQuality(String val) {
+    amazonQuality.value = val;
+    setBox.put("amazonQuality", val);
+  }
+
+  // ---- Instagram ---------------------------------------------------------
+  final instagramEnabled = RxBool(Hive.box("AppPrefs")
+          .get("instagramEnabled", defaultValue: false) == true);
+  final instagramCookie = RxString((Hive.box("AppPrefs")
+          .get("instagramCookie", defaultValue: "") as String?) ??
+      "");
+
+  void toggleInstagramEnabled(bool val) {
+    instagramEnabled.value = val;
+    setBox.put("instagramEnabled", val);
+  }
+
+  void changeInstagramCookie(String val) {
+    instagramCookie.value = val;
+    setBox.put("instagramCookie", val);
   }
 
   Future<void> _setInitValue() async {
@@ -182,7 +302,7 @@ class SettingsScreenController extends GetxController {
 
     exportLocationPath.value =
         setBox.get("exportLocationPath") ?? "/storage/emulated/0/Music";
-    downloadingFormat.value = setBox.get('downloadingFormat') ?? "m4a";
+    downloadingFormat.value = setBox.get('downloadingFormat') ?? "original";
     discoverContentType.value = setBox.get('discoverContentType') ?? "QP";
     slidableActionEnabled.value = setBox.get('slidableActionEnabled') ?? true;
     if (setBox.containsKey("piped")) {
@@ -442,6 +562,18 @@ class SettingsScreenController extends GetxController {
     tidalEnabled.value = false;
     tidalEndpoints.value = "";
     tidalQuality.value = "LOSSLESS";
+    deezerEnabled.value = false;
+    deezerEndpoints.value = "";
+    deezerQuality.value = "FLAC";
+    appleEnabled.value = false;
+    appleEndpoints.value = "";
+    amazonEnabled.value = false;
+    amazonEndpoints.value = "";
+    amazonQuality.value = "HI_RES";
+    instagramEnabled.value = false;
+    instagramCookie.value = "";
+    internetArchiveEnabled.value = true;
+    providerOrder.value = List.of(StreamRouteConfig.defaultProviderOrder);
     spotifyAutoFetchLyrics.value = true;
     spotifyAutoEnrichTracks.value = true;
     isLinkedWithPiped.value = false;

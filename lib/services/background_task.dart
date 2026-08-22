@@ -41,7 +41,7 @@ Future<Map<String, dynamic>> getStreamInfo(
   String configJson = '{}',
   Map<String, dynamic>? songJson,
 }) async {
-  if (songId.substring(0, 4) == "MPED") {
+  if (songId.length >= 4 && songId.substring(0, 4) == "MPED") {
     songId = songId.substring(4);
   }
   BackgroundIsolateBinaryMessenger.ensureInitialized(token);

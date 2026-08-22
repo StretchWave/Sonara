@@ -53,6 +53,9 @@ class Audio {
   final int? sampleRate;
   final int? bitDepth;
 
+  /// Optional HTTP headers required for streaming/downloading (e.g. User-Agent).
+  final Map<String, String>? headers;
+
   Audio(
       {required this.itag,
       required this.audioCodec,
@@ -64,7 +67,8 @@ class Audio {
       this.label,
       this.mimeType,
       this.sampleRate,
-      this.bitDepth});
+      this.bitDepth,
+      this.headers});
 
   Map<String, dynamic> toJson() => {
         "itag": itag,
@@ -78,6 +82,7 @@ class Audio {
         if (mimeType != null) "mimeType": mimeType,
         if (sampleRate != null) "sampleRate": sampleRate,
         if (bitDepth != null) "bitDepth": bitDepth,
+        if (headers != null) "headers": headers,
       };
 
   factory Audio.fromJson(json) => Audio(
@@ -91,7 +96,10 @@ class Audio {
       label: json['label'] as String?,
       mimeType: json['mimeType'] as String?,
       sampleRate: json['sampleRate'] is int ? json['sampleRate'] as int : null,
-      bitDepth: json['bitDepth'] is int ? json['bitDepth'] as int : null);
+      bitDepth: json['bitDepth'] is int ? json['bitDepth'] as int : null,
+      headers: json['headers'] != null
+          ? Map<String, String>.from(json['headers'] as Map)
+          : null);
 }
 
 enum Codec {

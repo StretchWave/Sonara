@@ -584,6 +584,18 @@ class SettingsScreen extends StatelessWidget {
                         value: settingsController.downloadingFormat.value,
                         items: const [
                           DropdownMenuItem(
+                            value: "original",
+                            child: Text("Original (source quality)"),
+                          ),
+                          DropdownMenuItem(
+                            value: "mp3",
+                            child: Text("MP3 (320 kbps)"),
+                          ),
+                          DropdownMenuItem(
+                            value: "flac",
+                            child: Text("FLAC (lossless)"),
+                          ),
+                          DropdownMenuItem(
                               value: "opus", child: Text("Opus/Ogg")),
                           DropdownMenuItem(
                             value: "m4a",
@@ -805,11 +817,252 @@ class SettingsScreen extends StatelessWidget {
                         )
                       : const SizedBox.shrink()),
                   ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("SoundCloud (fallback stream source)"),
+                    subtitle: Text(
+                      "Searches and streams directly from SoundCloud as an automatic fallback when YouTube is unavailable.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.soundcloudEnabled.value,
+                        onChanged: settingsController.toggleSoundCloudEnabled,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Internet Archive (free lossless)"),
+                    subtitle: Text(
+                      "Streams free FLAC from archive.org (live concerts, "
+                      "classical, Creative Commons) as a last-resort "
+                      "fallback. Prefers soundboard recordings. Turn off "
+                      "to skip the extra lookup when other sources fail.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.internetArchiveEnabled.value,
+                        onChanged:
+                            settingsController.toggleInternetArchiveEnabled,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Deezer (resolver-based)"),
+                    subtitle: Text(
+                      "Streams FLAC/MP3 through MetroFuse's hosted resolver "
+                      "by default, or a custom resolver you provide.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.deezerEnabled.value,
+                        onChanged: settingsController.toggleDeezerEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.deezerEnabled.isTrue
+                      ? Column(
+                          children: [
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Resolver endpoints"),
+                              subtitle: Obx(() => Text(
+                                    settingsController
+                                            .deezerEndpoints.value.isEmpty
+                                        ? "Using MetroFuse default resolver"
+                                        : settingsController
+                                            .deezerEndpoints.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  )),
+                              onTap: () => _showDeezerEndpointsDialog(
+                                  context, settingsController),
+                            ),
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Quality"),
+                              trailing: Obx(
+                                () => DropdownButton<String>(
+                                  dropdownColor: Theme.of(context).cardColor,
+                                  underline: const SizedBox.shrink(),
+                                  value: settingsController
+                                      .deezerQuality.value,
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: "FLAC",
+                                        child: Text("FLAC")),
+                                    DropdownMenuItem(
+                                        value: "MP3_320",
+                                        child: Text("MP3 320")),
+                                    DropdownMenuItem(
+                                        value: "MP3_128",
+                                        child: Text("MP3 128")),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      settingsController
+                                          .changeDeezerQuality(val);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Apple Music (hosted resolver)"),
+                    subtitle: Text(
+                      "Streams AAC through MetroFuse's hosted token + gamdl "
+                      "resolvers. Works out of the box when enabled.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.appleEnabled.value,
+                        onChanged: settingsController.toggleAppleEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.appleEnabled.isTrue
+                      ? ListTile(
+                          contentPadding:
+                              const EdgeInsets.only(left: 5, right: 10),
+                          title: const Text("Stream resolver"),
+                          subtitle: Obx(() => Text(
+                                settingsController
+                                        .appleEndpoints.value.isEmpty
+                                    ? "Using MetroFuse hosted resolver"
+                                    : settingsController.appleEndpoints.value,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium,
+                              )),
+                          onTap: () => _showAppleEndpointsDialog(
+                              context, settingsController),
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Amazon Music (resolver-based)"),
+                    subtitle: Text(
+                      "Streams FLAC/AAC through MetroFuse's hosted resolver "
+                      "by default, or a custom resolver you provide.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.amazonEnabled.value,
+                        onChanged: settingsController.toggleAmazonEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.amazonEnabled.isTrue
+                      ? Column(
+                          children: [
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Resolver endpoints"),
+                              subtitle: Obx(() => Text(
+                                    settingsController
+                                            .amazonEndpoints.value.isEmpty
+                                        ? "Using MetroFuse default resolver"
+                                        : settingsController
+                                            .amazonEndpoints.value,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium,
+                                  )),
+                              onTap: () => _showAmazonEndpointsDialog(
+                                  context, settingsController),
+                            ),
+                            ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 5, right: 10),
+                              title: const Text("Quality"),
+                              trailing: Obx(
+                                () => DropdownButton<String>(
+                                  dropdownColor: Theme.of(context).cardColor,
+                                  underline: const SizedBox.shrink(),
+                                  value: settingsController
+                                      .amazonQuality.value,
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: "HI_RES",
+                                        child: Text("Hi-Res FLAC")),
+                                    DropdownMenuItem(
+                                        value: "LOSSLESS",
+                                        child: Text("FLAC")),
+                                    DropdownMenuItem(
+                                        value: "HIGH",
+                                        child: Text("AAC 256")),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      settingsController
+                                          .changeAmazonQuality(val);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
+                    contentPadding: const EdgeInsets.only(left: 5, right: 10),
+                    title: const Text("Instagram (session-based)"),
+                    subtitle: Text(
+                      "Streams audio from Instagram Reels using your own "
+                      "Instagram session cookie. No server needed.",
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    isThreeLine: true,
+                    trailing: Obx(
+                      () => CustSwitch(
+                        value: settingsController.instagramEnabled.value,
+                        onChanged: settingsController.toggleInstagramEnabled,
+                      ),
+                    ),
+                  ),
+                  Obx(() => settingsController.instagramEnabled.isTrue
+                      ? ListTile(
+                          contentPadding:
+                              const EdgeInsets.only(left: 5, right: 10),
+                          title: const Text("Session cookie"),
+                          subtitle: Obx(() => Text(
+                                settingsController
+                                        .instagramCookie.value.isEmpty
+                                    ? "Paste your sessionid cookie"
+                                    : "Cookie saved",
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium,
+                              )),
+                          onTap: () => _showInstagramCookieDialog(
+                              context, settingsController),
+                        )
+                      : const SizedBox.shrink()),
+                  ListTile(
                     contentPadding:
                         const EdgeInsets.only(left: 5, right: 10),
-                    title: const Text("Resolver health"),
+                    title: const Text("Sources & priority"),
                     subtitle: Text(
-                      "Probe each configured resolver and show status",
+                      "Scan which sources work and set the order they are "
+                      "tried in",
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     onTap: () =>
@@ -1089,6 +1342,134 @@ class SettingsScreen extends StatelessWidget {
           TextButton(
             onPressed: () {
               settingsController.changeTidalEndpoints(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDeezerEndpointsDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.deezerEndpoints.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Deezer resolver endpoints'),
+        content: TextField(
+          controller: input,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'One URL per line (leave empty to use the default)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeDeezerEndpoints(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAppleEndpointsDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.appleEndpoints.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Apple Music stream resolver'),
+        content: TextField(
+          controller: input,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'One URL per line (leave empty to use the default)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeAppleEndpoints(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAmazonEndpointsDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.amazonEndpoints.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Amazon Music resolver endpoints'),
+        content: TextField(
+          controller: input,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'One URL per line (leave empty to use the default)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeAmazonEndpoints(input.text.trim());
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showInstagramCookieDialog(
+      BuildContext context, SettingsScreenController settingsController) {
+    final input =
+        TextEditingController(text: settingsController.instagramCookie.value);
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Instagram session cookie'),
+        content: TextField(
+          controller: input,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Paste your sessionid cookie value',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              settingsController.changeInstagramCookie(input.text.trim());
               Navigator.of(context).pop();
             },
             child: const Text('Save'),

@@ -64,15 +64,32 @@ void main() {
     expect(restored.matchOverrides['qobuz::x'], '42');
   });
 
-  test('empty config defaults to YouTube-only routing', () {
+  test('reads providerOrder from the AppPrefs box', () async {
+    await Hive.openBox('AppPrefs');
+    final box = Hive.box('AppPrefs');
+    box.put('providerOrder', ['soundcloud', 'youtube_music', 'qobuz']);
+
+    final config = StreamRouteConfig.fromSettings();
+
+    expect(config.providerOrder, ['soundcloud', 'youtube_music', 'qobuz']);
+  });
+
+  test('providerOrder defaults to the historical cascade', () {
+    const config = StreamRouteConfig();
+    expect(config.providerOrder, StreamRouteConfig.defaultProviderOrder);
+  });
+
+  test('empty config defaults to YouTube and SoundCloud routing', () {
     final config = StreamRouteConfig.fromJsonString('{}');
     expect(config.qobuzEnabled, isFalse);
     expect(config.qobuzInstances, isEmpty);
+    expect(config.soundcloudEnabled, isTrue);
     final router = StreamRouter.build(config);
-    expect(router.providers.map((p) => p.id), ['youtube_music']);
+    expect(router.providers.map((p) => p.id),
+        ['youtube_music', 'soundcloud', 'internet_archive']);
   });
 
-  test('build includes Qobuz and Tidal before YouTube when enabled', () {
+  test('build includes Qobuz and Tidal before YouTube and SoundCloud when enabled', () {
     const config = StreamRouteConfig(
       qobuzEnabled: true,
       qobuzInstances: ['https://a.example'],
@@ -80,7 +97,73 @@ void main() {
       tidalEndpoints: ['https://t.example'],
     );
     final router = StreamRouter.build(config);
+    expect(router.providers.map((p) => p.id), [
+      'qobuz',
+      'tidal',
+      'youtube_music',
+      'soundcloud',
+      'internet_archive'
+    ]);
+  });
+
+  test('build sorts providers by the configured priority order', () {
+    const config = StreamRouteConfig(
+      qobuzEnabled: true,
+      qobuzInstances: ['https://q.example'],
+      tidalEnabled: true,
+      tidalEndpoints: ['https://t.example'],
+      deezerEnabled: true,
+      deezerEndpoints: ['https://d.example'],
+      amazonEnabled: true,
+      amazonEndpoints: ['https://a.example'],
+      soundcloudEnabled: true,
+      providerOrder: [
+        'amazon',
+        'deezer',
+        'youtube_music',
+        'qobuz',
+        'tidal',
+        'soundcloud',
+      ],
+    );
+    final router = StreamRouter.build(config);
+    expect(router.providers.map((p) => p.id), [
+      'amazon',
+      'deezer',
+      'youtube_music',
+      'qobuz',
+      'tidal',
+      'soundcloud',
+      'internet_archive'
+    ]);
+  });
+
+  test('Apple, Deezer and Amazon are included when just enabled (defaults)', () {
+    const config = StreamRouteConfig(
+      deezerEnabled: true,
+      appleEnabled: true,
+      amazonEnabled: true,
+    );
+    final router = StreamRouter.build(config);
+    expect(router.providers.map((p) => p.id), [
+      'deezer',
+      'apple',
+      'amazon',
+      'youtube_music',
+      'soundcloud',
+      'internet_archive'
+    ]);
+  });
+
+  test('disabled providers are skipped even when listed first in priority', () {
+    const config = StreamRouteConfig(
+      qobuzEnabled: true,
+      qobuzInstances: ['https://q.example'],
+      providerOrder: ['tidal', 'qobuz', 'youtube_music'],
+    );
+    final router = StreamRouter.build(config);
+    // SoundCloud is enabled by default and not listed, so it trails at the end.
     expect(router.providers.map((p) => p.id),
-        ['qobuz', 'tidal', 'youtube_music']);
+        ['qobuz', 'youtube_music', 'soundcloud', 'internet_archive']);
   });
 }

@@ -72,15 +72,34 @@ class Downloader extends GetxService {
     }
   }
 
-  Future<void> download(MediaItem? song, {List<MediaItem>? songList}) async {
+  /// Queues [song] (or a whole [songList]) for download.
+  ///
+  /// [format] overrides the global default for this download: "original",
+  /// "mp3", "flac", "opus" or "m4a". Playlists/auto-downloads pass no
+  /// format and use the setting from Settings → Download.
+  Future<void> download(MediaItem? song,
+      {List<MediaItem>? songList, String? format}) async {
     if (!(await checkPermissionNDir())) return;
     if (songList != null) {
+      for (final item in songList) {
+        _setDownloadFormat(item, format);
+      }
       songQueue.addAll(songList);
     } else {
-      songQueue.add(song!);
+      _setDownloadFormat(song!, format);
+      songQueue.add(song);
     }
     if (isJobRunning.isFalse) {
       await triggerDownloadingJob();
+    }
+  }
+
+  /// Records a per-song format override on the item (null = use default).
+  void _setDownloadFormat(MediaItem song, String? format) {
+    if (format == null || format == 'original') {
+      song.extras?.remove('downloadFormat');
+    } else {
+      song.extras?['downloadFormat'] = format;
     }
   }
 
@@ -156,20 +175,12 @@ class Downloader extends GetxService {
     Completer<void> complete = Completer();
 
     final settingsScreenController = Get.find<SettingsScreenController>();
-    final downloadingFormat = settingsScreenController.downloadingFormat.string;
+    final globalFormat = settingsScreenController.downloadingFormat.string;
+    final requestedFormat = (song.extras?['downloadFormat'] as String?) ??
+        (globalFormat.isEmpty ? 'original' : globalFormat);
 
     final playerResponse = await StreamRouter.build(StreamRouteConfig.fromSettings())
         .fetch(song.id, song: SongQuery.fromMediaItem(song));
-    // if (!playerResponse.playable) {
-    //   printINFO("Network error! Check your network connection.");
-    //   ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
-    //       Get.context!, playerResponse.statusMSG,
-    //       size: SanckBarSize.BIG,
-    //       duration: const Duration(seconds: 2),
-    //       top: !GetPlatform.isDesktop));
-    //   complete.complete();
-    //   return complete.future;
-    // }
 
     if (!playerResponse.playable) {
       ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
@@ -185,34 +196,67 @@ class Downloader extends GetxService {
       return complete.future;
     }
 
-    Audio requiredAudioStream = downloadingFormat == "opus"
-        ? playerResponse.highestBitrateOpusAudio!
-        : playerResponse.highestBitrateMp4aAudio!;
+    final requiredAudioStream = _pickAudioForFormat(playerResponse, requestedFormat);
+    if (requiredAudioStream == null) {
+      ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
+          Get.context!, "downloadError3".tr,
+          size: SanckBarSize.BIG,
+          duration: const Duration(seconds: 2),
+          top: !GetPlatform.isDesktop));
+      printINFO("No audio stream available for download");
+      complete.complete();
+      return complete.future;
+    }
 
     final dirPath = settingsScreenController.downloadLocationPath.string;
-    final actualDownformat = switch (requiredAudioStream.audioCodec) {
-      Codec.flac => 'flac',
-      Codec.mp3 => 'mp3',
-      Codec.mp4a => 'm4a',
-      Codec.opus => 'opus',
-    };
+    final sourceExt = _extensionForCodec(requiredAudioStream.audioCodec);
+    // Only MP3/FLAC can trigger a transcode; everything else keeps the
+    // source file (and its real extension) as-is.
+    final needsConversion = requestedFormat == 'mp3' ||
+        (requestedFormat == 'flac' &&
+            requiredAudioStream.audioCodec != Codec.flac);
+    final targetExt =
+        needsConversion ? (requestedFormat == 'flac' ? 'flac' : 'mp3') : sourceExt;
     final RegExp invalidChar =
         RegExp(r'Container.|\/|\\|\"|\<|\>|\*|\?|\:|\!|\[|\]|\¡|\||\%');
     final songTitle = "${song.title.trim()} (${song.artist?.trim()})"
         .replaceAll(invalidChar, "");
-    String filePath = "$dirPath/$songTitle.$actualDownformat";
-    printINFO("Downloading filePath: $filePath");
+    String filePath = "$dirPath/$songTitle.$targetExt";
+    final tempPath = "$filePath.part";
+    printINFO("Downloading ($requestedFormat): $filePath");
     final totalBytes = requiredAudioStream.size;
+    final downloadHeaders = <String, dynamic>{
+      if (totalBytes > 0) "Range": 'bytes=0-$totalBytes',
+      if (requiredAudioStream.headers != null) ...requiredAudioStream.headers!,
+    };
 
     _dio.download(
         requiredAudioStream.url,
-        options: Options(headers: {"Range": 'bytes=0-$totalBytes'}),
-        filePath, onReceiveProgress: (count, total) {
+        options: Options(headers: downloadHeaders),
+        tempPath, onReceiveProgress: (count, total) {
       if (total <= 0) return;
       songDownloadingProgress.value = ((count / total) * 100).toInt();
     }).then(
       (value) async {
         printINFO(value.data);
+
+        // Convert (MP3/FLAC) or move the temp file into place.
+        if (needsConversion) {
+          final ok = await _convertToFormat(tempPath, filePath, requestedFormat);
+          if (!ok) {
+            final fallbackPath = "$dirPath/$songTitle.$sourceExt";
+            await File(tempPath).rename(fallbackPath);
+            filePath = fallbackPath;
+            ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
+                Get.context!,
+                "ffmpeg not found — saved as $sourceExt instead",
+                size: SanckBarSize.BIG,
+                duration: const Duration(seconds: 2),
+                top: !GetPlatform.isDesktop));
+          }
+        } else {
+          await File(tempPath).rename(filePath);
+        }
 
         String? year;
         try {
@@ -291,5 +335,83 @@ class Downloader extends GetxService {
     );
 
     return complete.future;
+  }
+
+  /// Picks the source audio stream for the requested download format.
+  ///
+  /// "original"/"mp3"/"flac" prefer lossless then the highest-quality
+  /// YouTube stream (Opus); "opus"/"m4a" keep their historical behavior
+  /// of selecting the matching stream when present.
+  Audio? _pickAudioForFormat(StreamProvider response, String format) {
+    final formats = response.audioFormats ?? const [];
+    if (formats.isEmpty) return null;
+    Audio? firstOf(Codec codec) {
+      for (final audio in formats) {
+        if (audio.audioCodec == codec) return audio;
+      }
+      return null;
+    }
+
+    switch (format) {
+      case 'opus':
+        return firstOf(Codec.opus) ?? formats.first;
+      case 'm4a':
+        return firstOf(Codec.mp4a) ?? formats.first;
+      case 'flac':
+        return firstOf(Codec.flac) ?? firstOf(Codec.opus) ?? formats.first;
+      case 'mp3':
+        return firstOf(Codec.flac) ?? firstOf(Codec.opus) ?? formats.first;
+      default: // original
+        return firstOf(Codec.flac) ?? firstOf(Codec.opus) ?? formats.first;
+    }
+  }
+
+  static String _extensionForCodec(Codec codec) => switch (codec) {
+        Codec.flac => 'flac',
+        Codec.mp3 => 'mp3',
+        Codec.mp4a => 'm4a',
+        Codec.opus => 'opus',
+      };
+
+  bool? _ffmpegChecked;
+  bool _ffmpegOk = false;
+
+  /// Whether the `ffmpeg` binary is available on this device (desktop).
+  Future<bool> _ffmpegAvailable() async {
+    if (_ffmpegChecked == true) return _ffmpegOk;
+    _ffmpegChecked = true;
+    try {
+      final res = await Process.run('ffmpeg', ['-version']);
+      _ffmpegOk = res.exitCode == 0;
+    } catch (_) {
+      _ffmpegOk = false;
+    }
+    return _ffmpegOk;
+  }
+
+  /// Transcodes [input] into [output] (mp3 320k or flac). Returns false
+  /// when ffmpeg is missing or the conversion failed.
+  Future<bool> _convertToFormat(
+      String input, String output, String format) async {
+    if (!await _ffmpegAvailable()) return false;
+    try {
+      final args = format == 'flac'
+          ? ['-y', '-i', input, '-vn', '-codec:a', 'flac', output]
+          : [
+              '-y',
+              '-i',
+              input,
+              '-vn',
+              '-codec:a',
+              'libmp3lame',
+              '-b:a',
+              '320k',
+              output
+            ];
+      final res = await Process.run('ffmpeg', args);
+      return res.exitCode == 0 && await File(output).exists();
+    } catch (_) {
+      return false;
+    }
   }
 }

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonara/services/providers/provider_health.dart';
@@ -48,10 +51,12 @@ class _FakeTidalApi extends TidalApi {
   _FakeTidalApi({
     this.data = const {},
     this.errorStatusCode,
+    this.searchItems = const [],
   });
 
   final Map<String, dynamic> data;
   final int? errorStatusCode;
+  final List<Map<String, dynamic>> searchItems;
 
   @override
   Future<Map<String, dynamic>> requestStream(
@@ -67,7 +72,50 @@ class _FakeTidalApi extends TidalApi {
     }
     return data;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> searchTracks(String term) async {
+    return searchItems;
+  }
 }
+
+/// A dio adapter that answers every request from a canned handler so the
+/// full source scan can run without touching the network.
+class _StubHttpClientAdapter implements HttpClientAdapter {
+  _StubHttpClientAdapter(this.handler);
+
+  final ResponseBody Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return handler(options);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+ResponseBody _jsonResponse(Object data) => ResponseBody.fromString(
+      jsonEncode(data),
+      200,
+      headers: {
+        Headers.contentTypeHeader: ['application/json'],
+      },
+    );
+
+/// A healthy InnerTube player response with a playable stream URL.
+Map<String, dynamic> _youtubeOk() => {
+      'playabilityStatus': {'status': 'OK'},
+      'streamingData': {
+        'adaptiveFormats': [
+          {'url': 'https://googlevideo.example/audio', 'itag': 140},
+        ],
+      },
+    };
 
 Map<String, dynamic> _trackItem(String id) => {
       'id': id,
@@ -154,5 +202,109 @@ void main() {
     );
     final results = await checker.checkAll(const StreamRouteConfig());
     expect(results, isEmpty);
+  });
+
+  group('checkSources', () {
+    ProviderHealthChecker checkerWith(Dio dio) => ProviderHealthChecker(
+          qobuzApi: _FakeQobuzApi(items: [_trackItem('42')]),
+          tidalApi: _FakeTidalApi(
+            data: {'manifest': 'https://cdn/x.mpd'},
+            searchItems: [_trackItem('1')],
+          ),
+          dio: dio,
+          soundcloudClientId: () async => 'fake-client-id',
+        );
+
+    Dio stubDio(ResponseBody Function(RequestOptions) handler) =>
+        Dio(BaseOptions())..httpClientAdapter = _StubHttpClientAdapter(handler);
+
+    test('returns one result per source with stable source ids', () async {
+      final dio = stubDio((o) => _jsonResponse({}));
+      final checker = checkerWith(dio);
+      final results = await checker.checkSources(const StreamRouteConfig());
+      expect(
+        results.map((r) => r.sourceId).toList(),
+        [
+          'youtube_music',
+          'soundcloud',
+          'qobuz',
+          'tidal',
+          'deezer',
+          'apple',
+          'amazon',
+          'instagram',
+        ],
+      );
+    });
+
+    test('reports online when every probe answers positively', () async {
+      final dio = stubDio((o) {
+        final path = o.uri.toString();
+        if (path.contains('youtubei')) {
+          return _jsonResponse(_youtubeOk());
+        }
+        return _jsonResponse({});
+      });
+      final checker = checkerWith(dio);
+      final results = await checker.checkSources(const StreamRouteConfig(
+        qobuzInstances: ['https://q.example'],
+        tidalEndpoints: ['https://t.example'],
+      ));
+
+      final byId = {for (final r in results) r.sourceId: r};
+      expect(byId['youtube_music']!.status, ProviderHealthStatus.online);
+      expect(byId['soundcloud']!.status, ProviderHealthStatus.online);
+      expect(byId['qobuz']!.status, ProviderHealthStatus.online);
+      expect(byId['tidal']!.status, ProviderHealthStatus.online);
+    });
+
+    test('sources without a resolver report configured=false', () async {
+      final dio = stubDio((o) {
+        final path = o.uri.toString();
+        if (path.contains('youtubei')) {
+          return _jsonResponse(_youtubeOk());
+        }
+        return _jsonResponse({});
+      });
+      final checker = checkerWith(dio);
+      final results =
+          await checker.checkSources(const StreamRouteConfig());
+
+      final byId = {for (final r in results) r.sourceId: r};
+      expect(byId['qobuz']!.configured, isFalse);
+      expect(byId['deezer']!.configured, isFalse);
+      expect(byId['apple']!.configured, isFalse);
+      expect(byId['amazon']!.configured, isFalse);
+      expect(byId['instagram']!.configured, isFalse);
+      expect(byId['instagram']!.message,
+          contains(RegExp('no Instagram session', caseSensitive: false)));
+    });
+
+    test('deezer resolver probe reports online when a stream is returned',
+        () async {
+      final dio = stubDio((o) {
+        final path = o.uri.toString();
+        if (path.contains('youtubei')) {
+          return _jsonResponse(_youtubeOk());
+        }
+        if (path.contains('get_url')) {
+          return _jsonResponse({
+            'data': [
+              {'media': [{'sources': [{'url': 'https://cdn/x.mp3'}]}]},
+            ],
+          });
+        }
+        return _jsonResponse({});
+      });
+      final checker = checkerWith(dio);
+      final results = await checker.checkSources(const StreamRouteConfig(
+        deezerEnabled: true,
+        deezerEndpoints: ['https://d.example'],
+      ));
+
+      final byId = {for (final r in results) r.sourceId: r};
+      expect(byId['deezer']!.configured, isTrue);
+      expect(byId['deezer']!.status, ProviderHealthStatus.online);
+    });
   });
 }
