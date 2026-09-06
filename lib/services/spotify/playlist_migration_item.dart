@@ -129,7 +129,8 @@ class PlaylistMigrationItem {
 
   factory PlaylistMigrationItem.fromJson(Map<dynamic, dynamic> json) =>
       PlaylistMigrationItem(
-        sourceTrack: SpotifySourceTrack.fromJson(json['source']),
+        sourceTrack: SpotifySourceTrack.fromJson(
+            (json['source'] ?? json['sourceTrack']) as Map),
         metadataHash: json['metadataHash'] as String?,
         status: MigrationStatus.values
             .firstWhere((s) => s.name == json['status'],

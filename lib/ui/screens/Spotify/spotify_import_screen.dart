@@ -28,13 +28,21 @@ class _SpotifyImportScreenState extends State<SpotifyImportScreen> {
     super.initState();
     controller = Get.isRegistered<SpotifyImportController>()
         ? Get.find<SpotifyImportController>()
-        : Get.put(SpotifyImportController());
+        : Get.put(SpotifyImportController(), permanent: true);
+    controller.loadSavedMigrations();
   }
 
   @override
   void dispose() {
+    // Only remove the controller if idle and empty so background resolution
+    // and review state are never wiped when minimizing or navigating away.
     if (Get.isRegistered<SpotifyImportController>()) {
-      Get.delete<SpotifyImportController>();
+      final ctrl = Get.find<SpotifyImportController>();
+      if (!ctrl.isResolving.value &&
+          ctrl.phase.value == MigrationPhase.setup &&
+          ctrl.items.isEmpty) {
+        Get.delete<SpotifyImportController>();
+      }
     }
     super.dispose();
   }
@@ -114,6 +122,123 @@ class _SetupView extends StatelessWidget {
                       style: TextStyle(color: theme.colorScheme.error)),
                 )
               : const SizedBox.shrink()),
+          Obx(() {
+            final saved = controller.savedMigrations;
+            if (saved.isEmpty) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Saved & Recent Imports',
+                        style: theme.textTheme.titleMedium),
+                    Text('${saved.length}', style: theme.textTheme.bodySmall),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: saved.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = saved[index];
+                    final id = item['id'] as String;
+                    final name = item['name'] as String;
+                    final status = item['status'] as String;
+                    final artwork = item['artworkUrl'] as String?;
+                    final total = (item['totalTracks'] as num?)?.toInt() ?? 0;
+                    final matched =
+                        (item['matchedTracks'] as num?)?.toInt() ?? 0;
+                    final isCompleted = status == 'completed';
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: theme.colorScheme.outlineVariant
+                              .withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          _Artwork(url: artwork, size: 52),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: isCompleted
+                                            ? theme.colorScheme.primary
+                                                .withValues(alpha: 0.15)
+                                            : Colors.amber
+                                                .withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        isCompleted ? 'Saved' : 'In progress',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                          color: isCompleted
+                                              ? theme.colorScheme.primary
+                                              : Colors.amber,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '$matched / $total matched',
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.open_in_new, size: 20),
+                            tooltip: 'Review & Decide Destination',
+                            onPressed: () =>
+                                controller.openSavedMigration(id),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.delete_outline,
+                                size: 20, color: theme.colorScheme.error),
+                            tooltip: 'Delete',
+                            onPressed: () =>
+                                controller.deleteSavedMigration(id),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            );
+          }),
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 12),
@@ -218,14 +343,22 @@ class _AuthRequiredView extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               )),
-          const SizedBox(height: 24),
-          OutlinedButton(
-            onPressed: controller.importPlaylist,
-            child: Text('tryAgain'.tr),
+          Center(
+            child: ProceedButton(
+              buttonText: 'tryAgain'.tr,
+              onPressed: controller.importPlaylist,
+            ),
           ),
-          TextButton(
-            onPressed: () => controller.phase.value = MigrationPhase.setup,
-            child: Text('tryAnotherPlaylist'.tr),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton(
+              onPressed: () => controller.phase.value = MigrationPhase.setup,
+              style: TextButton.styleFrom(
+                foregroundColor:
+                    theme.textTheme.bodyMedium?.color ?? Colors.white70,
+              ),
+              child: Text('tryAnotherPlaylist'.tr),
+            ),
           ),
         ],
       ),

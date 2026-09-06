@@ -150,6 +150,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
     }
     songList.value = List<MediaItem>.from(content['tracks']);
     checkDownloadStatus();
+    _updatePlaylistThumbSongBased();
   }
 
   @override
@@ -268,18 +269,36 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
   @override
   void fetchAlbumDetails(Album? album_,String albumId) {} // Not used in this class
 
+  @override
+  void fetchSongsfromDatabase(String id) async {
+    final box = await Hive.openBox(id);
+    songList.value = box.values
+        .map<MediaItem?>((item) => MediaItemBuilder.fromJson(item))
+        .whereType<MediaItem>()
+        .toList();
+    if (id != "SongDownloads") await box.close();
+    songList.value =
+        id == "LIBRP" ? songList.reversed.toList() : songList.toList();
+    checkDownloadStatus();
+    _updatePlaylistThumbSongBased();
+  }
+
   /// This function updates the local playlist thumbnail based on the first song's thumbnail
   void _updatePlaylistThumbSongBased() {
     final currentPlaylist = playlist.value;
 
-    if (isDefaultPlaylist.isTrue || currentPlaylist.isCloudPlaylist) {
+    if (currentPlaylist.isCloudPlaylist) {
       return;
     }
 
     Playlist updatedplaylist;
     if (songList.isNotEmpty) {
-      updatedplaylist =
-          currentPlaylist.copyWith(thumbnailUrl: songList[0].artUri.toString());
+      final art = songList[0].artUri?.toString();
+      if (art != null && art.isNotEmpty) {
+        updatedplaylist = currentPlaylist.copyWith(thumbnailUrl: art);
+      } else {
+        return;
+      }
     } else {
       updatedplaylist =
           currentPlaylist.copyWith(thumbnailUrl: Playlist.thumbPlaceholderUrl);
@@ -292,10 +311,14 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
       return;
     }
 
-    // Update the playlist thumbnail URL
+    // Update the playlist thumbnail URL in-memory for immediate UI rendering
     playlist.value = updatedplaylist;
-    Get.find<LibraryPlaylistsController>()
-        .updatePlaylistIntoDb(updatedplaylist);
+
+    // Only persist to DB for user-created custom local playlists
+    if (isDefaultPlaylist.isFalse) {
+      Get.find<LibraryPlaylistsController>()
+          .updatePlaylistIntoDb(updatedplaylist);
+    }
   }
 
   @override

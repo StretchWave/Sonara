@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:widget_marquee/widget_marquee.dart';
 
 import '/models/playling_from.dart';
+import '/models/playlist.dart';
 import '/models/thumbnail.dart';
 import '/ui/widgets/playlist_album_scroll_behaviour.dart';
 import '../../../services/downloader.dart';
@@ -64,6 +65,19 @@ class PlaylistScreen extends StatelessWidget {
                         final opacityValue = 1 -
                             playlistController.scrollOffset.value /
                                 (size.width - 100);
+                        final rawUrl =
+                            playlistController.playlist.value.thumbnailUrl;
+                        final isPlaceholder = rawUrl.isEmpty ||
+                            rawUrl == Playlist.thumbPlaceholderUrl ||
+                            rawUrl.contains('playlist_placeholder.png');
+
+                        if (isPlaceholder) {
+                          return SizedBox(
+                            height: landscape ? size.height : size.width,
+                            width: landscape ? size.height : size.width,
+                          );
+                        }
+
                         return Opacity(
                           opacity: opacityValue < 0 ||
                                   playlistController.isSearchingOn.isTrue && !landscape
@@ -92,12 +106,13 @@ class PlaylistScreen extends StatelessWidget {
                               ],
                             ),
                             child: CachedNetworkImage(
-                              imageUrl: Thumbnail(playlistController
-                                      .playlist.value.thumbnailUrl)
-                                  .extraHigh,
+                              imageUrl: Thumbnail(rawUrl).extraHigh,
                               fit: landscape ? BoxFit.fitHeight : BoxFit.cover,
                               width: landscape ? null : size.width,
                               height: landscape ? size.height : size.width,
+                              placeholder: (_, __) => const SizedBox.shrink(),
+                              errorWidget: (_, __, ___) =>
+                                  const SizedBox.shrink(),
                             ),
                           ),
                         );

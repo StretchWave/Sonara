@@ -7,6 +7,7 @@ import 'package:sonara/services/metadata/cached_migration_provider.dart';
 import 'package:sonara/services/metadata/playlist_metadata_provider.dart';
 import 'package:sonara/services/metadata/playlist_metadata_resolver.dart';
 import 'package:sonara/services/metadata/spotify_oembed_provider.dart';
+import 'package:sonara/services/metadata/spotify_embed_provider.dart';
 import 'package:sonara/services/metadata/spotify_official_provider.dart';
 import 'package:sonara/services/spotify/playlist_migration_item.dart';
 import 'package:sonara/services/spotify/playlist_migration_service.dart';
@@ -253,6 +254,61 @@ void main() {
       expect(result.status, PlaylistMetadataStatus.success);
       expect(result.tracksSource, 'spotify-official');
       expect(result.tracks.single.title, 'New Track');
+    });
+
+    test('resolves tracks via SpotifyEmbedProvider in the stack', () async {
+      final embedAdapter = FakeDioAdapter();
+      embedAdapter.handler = (_) => ResponseBody.fromString(
+            '''
+<!DOCTYPE html>
+<html>
+<body>
+<script id="__NEXT_DATA__" type="application/json">
+{
+  "props": {
+    "pageProps": {
+      "state": {
+        "data": {
+          "entity": {
+            "title": "Embed Playlist",
+            "trackList": [
+              {
+                "uri": "spotify:track:abc123",
+                "title": "Embed Track",
+                "subtitle": "Embed Artist",
+                "duration": 180000,
+                "isExplicit": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>
+''',
+            200,
+            headers: {'content-type': ['text/html; charset=utf-8']},
+          );
+
+      final resolver = PlaylistMetadataResolver([
+        SpotifyOEmbedProvider(),
+        SpotifyEmbedProvider(
+            dio: Dio(BaseOptions())..httpClientAdapter = embedAdapter),
+        CachedMigrationProvider(),
+        SpotifyOfficialProvider(_FakeApiClient(
+            const SpotifyPlaylistData(id: 'p', name: 'P', tracks: []),
+            session: false)),
+      ]);
+
+      final result = await resolver.resolve(Uri.parse(_playlistUrl));
+      expect(result.status, PlaylistMetadataStatus.success);
+      expect(result.tracksSource, 'spotify-embed');
+      expect(result.tracks.single.title, 'Embed Track');
+      expect(result.tracks.single.artists, ['Embed Artist']);
     });
 
     test('identified but no track list -> partialSuccess + auth hint',

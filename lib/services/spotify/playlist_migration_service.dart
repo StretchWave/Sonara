@@ -86,7 +86,8 @@ class PlaylistMigrationService {
   })  : _apiClient = apiClient ?? SpotifyApiClient(),
         _resolver = resolver ??
             ProviderTrackResolver([
-              YoutubeMusicTrackResolver(Get.find<MusicServices>()),
+              if (Get.isRegistered<MusicServices>())
+                YoutubeMusicTrackResolver(Get.find<MusicServices>()),
             ]),
         _lrcLib = lrcLib ?? LrcLibClient(),
         _musicBrainz = musicBrainz ?? MusicBrainzClient() {
@@ -635,6 +636,7 @@ class PlaylistMigrationService {
     required String spotifyPlaylistId,
     required String spotifyPlaylistName,
     required List<PlaylistMigrationItem> items,
+    String? artworkUrl,
     bool completed = false,
   }) async {
     final box = await _openBox('SpotifyMigrations');
@@ -642,6 +644,7 @@ class PlaylistMigrationService {
       'name': spotifyPlaylistName,
       'status': completed ? 'completed' : 'in_progress',
       'migratedAt': DateTime.now().millisecondsSinceEpoch,
+      'artworkUrl': artworkUrl,
       'items': items.map((e) => e.toJson()).toList(),
     });
   }
@@ -840,11 +843,13 @@ class PlaylistMigrationService {
     required String spotifyPlaylistId,
     required String spotifyPlaylistName,
     required List<PlaylistMigrationItem> items,
+    String? artworkUrl,
   }) {
     return persistProgress(
       spotifyPlaylistId: spotifyPlaylistId,
       spotifyPlaylistName: spotifyPlaylistName,
       items: items,
+      artworkUrl: artworkUrl,
       completed: true,
     );
   }

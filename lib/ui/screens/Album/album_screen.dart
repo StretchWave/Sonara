@@ -95,20 +95,10 @@ class AlbumScreen extends StatelessWidget {
                                       : BoxFit.fitWidth,
                                   width: landscape ? null : size.width,
                                   height: landscape ? size.height : null,
-                                  // placeholder: (context, n) => Align(
-                                  //   alignment:landscape?Alignment.centerLeft: Alignment.topCenter,
-                                  //   child: SizedBox(
-                                  //     width: landscape ? size.height : size.width,
-                                  //     height: landscape ? size.height : size.width,
-                                  //     child: Center(
-                                  //       child: Icon(Icons.album,
-                                  //           size: 150,
-                                  //           color: Theme.of(context)
-                                  //               .textTheme.titleSmall!.color
-                                  //         ),
-                                  //     ),
-                                  //   ),
-                                  // ),
+                                  placeholder: (_, __) =>
+                                      const SizedBox.shrink(),
+                                  errorWidget: (_, __, ___) =>
+                                      const SizedBox.shrink(),
                                 )));
                       }))
                   : SizedBox(

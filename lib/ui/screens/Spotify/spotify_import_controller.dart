@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '/models/playlist.dart';
 import '/services/metadata/playlist_metadata_provider.dart';
@@ -38,7 +39,19 @@ enum ResolutionStage { enriching, matching, lyrics }
 const int kPersistEvery = 10;
 
 class SpotifyImportController extends GetxController {
-  final service = PlaylistMigrationService();
+  final PlaylistMigrationService service;
+
+  SpotifyImportController({PlaylistMigrationService? service})
+      : service = service ?? PlaylistMigrationService();
+
+  /// Stored / completed migrations loaded from Hive for one-tap review/export.
+  final savedMigrations = <Map<String, dynamic>>[].obs;
+
+  @override
+  void onInit() {
+    super.onInit();
+    loadSavedMigrations();
+  }
 
   // -- setup --------------------------------------------------------------
   final phase = MigrationPhase.setup.obs;
@@ -280,75 +293,82 @@ class SpotifyImportController extends GetxController {
     phase.value = MigrationPhase.resolving;
     completedTracks.value = items.length - target.length;
 
-    // 1) Enrich tracks that lack an ISRC (MusicBrainz). Best-effort:
-    //    failures are ignored and cached results are instant.
-    if (Hive.box('AppPrefs')
-            .get('spotifyAutoEnrichTracks', defaultValue: true) ==
-        true) {
-      stage.value = ResolutionStage.enriching;
-      await service.enrichWithMusicBrainz(
-        target,
-        onProgress: (completed, total) {
-          // Enrichment happens before matching, so its progress must move
-          // the same counter the UI shows — otherwise the import looks
-          // stuck at 0 while the ISRC lookups run.
-          completedTracks.value = items.length - target.length + completed;
-          items.refresh();
-        },
-        shouldCancel: () => cancelRequested.value,
-      );
-    }
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {}
 
-    if (cancelRequested.value) {
-      wasCancelled.value = true;
-      isResolving.value = false;
-      phase.value = MigrationPhase.review;
-      await _persist();
-      return;
-    }
-
-    // 2) Provider matching.
-    stage.value = ResolutionStage.matching;
-    await service.resolveAll(
-      target,
-      forceRefresh: forceRefresh,
-      onProgress: (completed, total) {
-        completedTracks.value = items.length - target.length + completed;
-        items.refresh();
-        _maybePersist(completed);
-      },
-      shouldCancel: () => cancelRequested.value,
-    );
-
-    if (!cancelRequested.value) {
-      final lyricsTarget = items
-          .where((e) =>
-              e.matchedTrack != null && e.lyrics.status == LyricsStatus.none)
-          .toList();
-      if (lyricsTarget.isNotEmpty &&
-          Hive.box('AppPrefs')
-                  .get('spotifyAutoFetchLyrics', defaultValue: true) ==
-              true) {
-        stage.value = ResolutionStage.lyrics;
-        lyricsDone.value = 0;
-        lyricsTotal.value = lyricsTarget.length;
-        await service.resolveLyrics(
-          lyricsTarget,
+    try {
+      // 1) Enrich tracks that lack an ISRC (MusicBrainz). Best-effort:
+      //    failures are ignored and cached results are instant.
+      if (Hive.box('AppPrefs')
+              .get('spotifyAutoEnrichTracks', defaultValue: true) ==
+          true) {
+        stage.value = ResolutionStage.enriching;
+        await service.enrichWithMusicBrainz(
+          target,
           onProgress: (completed, total) {
-            lyricsDone.value = completed;
+            completedTracks.value = items.length - target.length + completed;
             items.refresh();
           },
           shouldCancel: () => cancelRequested.value,
         );
       }
-    }
 
-    wasCancelled.value = cancelRequested.value;
-    isResolving.value = false;
-    stage.value = ResolutionStage.matching;
-    phase.value = MigrationPhase.review;
-    // Final persistence (completed or partial — both are resumable).
-    await _persist();
+      if (cancelRequested.value) {
+        wasCancelled.value = true;
+        isResolving.value = false;
+        phase.value = MigrationPhase.review;
+        await _persist();
+        return;
+      }
+
+      // 2) Provider matching.
+      stage.value = ResolutionStage.matching;
+      await service.resolveAll(
+        target,
+        forceRefresh: forceRefresh,
+        onProgress: (completed, total) {
+          completedTracks.value = items.length - target.length + completed;
+          items.refresh();
+          _maybePersist(completed);
+        },
+        shouldCancel: () => cancelRequested.value,
+      );
+
+      if (!cancelRequested.value) {
+        final lyricsTarget = items
+            .where((e) =>
+                e.matchedTrack != null && e.lyrics.status == LyricsStatus.none)
+            .toList();
+        if (lyricsTarget.isNotEmpty &&
+            Hive.box('AppPrefs')
+                    .get('spotifyAutoFetchLyrics', defaultValue: true) ==
+                true) {
+          stage.value = ResolutionStage.lyrics;
+          lyricsDone.value = 0;
+          lyricsTotal.value = lyricsTarget.length;
+          await service.resolveLyrics(
+            lyricsTarget,
+            onProgress: (completed, total) {
+              lyricsDone.value = completed;
+              items.refresh();
+            },
+            shouldCancel: () => cancelRequested.value,
+          );
+        }
+      }
+
+      wasCancelled.value = cancelRequested.value;
+      isResolving.value = false;
+      stage.value = ResolutionStage.matching;
+      phase.value = MigrationPhase.review;
+      // Final persistence (completed or partial — both are resumable).
+      await _persist();
+    } finally {
+      try {
+        await WakelockPlus.disable();
+      } catch (_) {}
+    }
   }
 
   /// Requests cancellation; the resolver stops between batches, in-flight
@@ -393,17 +413,85 @@ class SpotifyImportController extends GetxController {
     unawaited(_persist());
   }
 
-  Future<void> _persist() async {
+  Future<void> _persist({bool completed = false}) async {
     if (playlistId.value.isEmpty) return;
     try {
+      final isDone = completed ||
+          (totalTracks.value > 0 && completedTracks.value >= totalTracks.value);
       await service.persistProgress(
         spotifyPlaylistId: playlistId.value,
         spotifyPlaylistName: playlistName.value,
         items: items.toList(),
+        artworkUrl: playlistArtwork.value,
+        completed: isDone,
       );
+      await loadSavedMigrations();
     } catch (_) {
       // Persistence must never break the migration flow.
     }
+  }
+
+  /// Loads all stored migrations from Hive for easy access on the setup screen.
+  Future<void> loadSavedMigrations() async {
+    try {
+      final box = await Hive.openBox('SpotifyMigrations');
+      final list = <Map<String, dynamic>>[];
+      for (final key in box.keys) {
+        final val = box.get(key);
+        if (val is Map) {
+          final itemsRaw = val['items'] as List? ?? const [];
+          final total = itemsRaw.length;
+          final matched = itemsRaw
+              .where((i) => i is Map && i['status'] == 'matched')
+              .length;
+          list.add({
+            'id': key.toString(),
+            'name': (val['name'] as String?) ?? 'Spotify Playlist',
+            'status': (val['status'] as String?) ?? 'in_progress',
+            'migratedAt': (val['migratedAt'] as num?)?.toInt() ?? 0,
+            'artworkUrl': val['artworkUrl'] as String?,
+            'totalTracks': total,
+            'matchedTracks': matched,
+          });
+        }
+      }
+      list.sort((a, b) =>
+          ((b['migratedAt'] as num?)?.toInt() ?? 0)
+              .compareTo((a['migratedAt'] as num?)?.toInt() ?? 0));
+      savedMigrations.value = list;
+    } catch (_) {}
+  }
+
+  /// Opens a previously stored migration directly into the Review screen
+  /// so the user can review tracks and choose a destination without re-resolving.
+  Future<void> openSavedMigration(String id) async {
+    final stored = await service.loadMigration(id);
+    if (stored == null) return;
+    final storedItems = service.itemsFromStored(stored);
+    playlistId.value = id;
+    playlistName.value = stored['name'] as String? ?? 'Spotify Playlist';
+    playlistArtwork.value = stored['artworkUrl'] as String? ??
+        (storedItems.isNotEmpty
+            ? storedItems.first.sourceTrack.artworkUrl
+            : null);
+    items.value = storedItems;
+    totalTracks.value = storedItems.length;
+    completedTracks.value = storedItems
+        .where((e) =>
+            e.status != MigrationStatus.pending &&
+            e.status != MigrationStatus.searching)
+        .length;
+    wasCancelled.value = false;
+    phase.value = MigrationPhase.review;
+  }
+
+  /// Deletes a saved migration from Hive.
+  Future<void> deleteSavedMigration(String id) async {
+    try {
+      final box = await Hive.openBox('SpotifyMigrations');
+      await box.delete(id);
+      await loadSavedMigrations();
+    } catch (_) {}
   }
 
   // -----------------------------------------------------------------------
@@ -442,7 +530,9 @@ class SpotifyImportController extends GetxController {
         spotifyPlaylistId: playlistId.value,
         spotifyPlaylistName: playlistName.value,
         items: items.toList(),
+        artworkUrl: playlistArtwork.value,
       );
+      await loadSavedMigrations();
       phase.value = MigrationPhase.done;
     } catch (e) {
       lastResult.value = null;

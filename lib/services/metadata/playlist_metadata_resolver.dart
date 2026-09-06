@@ -1,5 +1,6 @@
 import 'playlist_metadata_provider.dart';
 import 'spotify_oembed_provider.dart';
+import 'spotify_embed_provider.dart';
 import 'cached_migration_provider.dart';
 import 'backend_playlist_provider.dart';
 import 'spotify_official_provider.dart';
@@ -65,6 +66,7 @@ class PlaylistMetadataResolver {
   factory PlaylistMetadataResolver.defaultFor(SpotifyApiClient apiClient) =>
       PlaylistMetadataResolver([
         SpotifyOEmbedProvider(),
+        SpotifyEmbedProvider(),
         CachedMigrationProvider(),
         BackendPlaylistProvider(),
         SpotifyOfficialProvider(apiClient),
