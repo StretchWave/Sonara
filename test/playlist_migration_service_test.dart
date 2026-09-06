@@ -247,6 +247,7 @@ void main() {
       final favs = await Hive.openBox('LIBFAV');
       expect(favs.containsKey('yt1'), isTrue);
       expect(favs.containsKey('yt2'), isTrue);
+      expect(favs.keys.toList(), ['yt1', 'yt2']);
       await favs.close();
     });
 

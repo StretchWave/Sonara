@@ -104,8 +104,12 @@ class PlaylistMetadataResolver {
       // A successful provider overrides earlier data: the official API is
       // fresher than the cache; identification fills in title/artwork.
       if (result.status == PlaylistMetadataStatus.success) {
-        tracks = result.tracks;
-        tracksSource = provider.id;
+        if (provider.id == 'cached' && tracks != null && tracks.isNotEmpty) {
+          // Do not overwrite fresh live tracks with stale cached imports.
+        } else {
+          tracks = result.tracks;
+          tracksSource = provider.id;
+        }
       }
     }
 

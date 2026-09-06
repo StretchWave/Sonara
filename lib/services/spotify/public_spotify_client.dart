@@ -146,11 +146,9 @@ class PublicSpotifyClient {
       final items = (content['items'] as List?) ?? const [];
       rawItems.addAll(items.whereType<Map>().map((m) => Map<String, dynamic>.from(m)));
 
-      final paging = (content['pagingInfo'] as Map?) ?? const {};
-      final nextOffset = (paging['nextOffset'] as num?)?.toInt();
-      if (nextOffset == null || nextOffset <= offset || items.isEmpty) break;
+      if (items.isEmpty) break;
+      offset += items.length;
       if (totalCount != null && rawItems.length >= totalCount) break;
-      offset = nextOffset;
     }
 
     // 2. Collect track URIs preserving playlist order

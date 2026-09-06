@@ -742,10 +742,11 @@ class PlaylistMigrationService {
         try {
           if (box.containsKey(track.id)) {
             already++;
+            await box.delete(track.id);
           } else {
-            await box.put(track.id, MediaItemBuilder.toJson(track));
             added++;
           }
+          await box.put(track.id, MediaItemBuilder.toJson(track));
         } catch (_) {
           failed++;
         }

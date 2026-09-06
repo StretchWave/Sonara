@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -10,6 +10,7 @@ import '/services/spotify/playlist_migration_item.dart';
 import '/services/spotify/playlist_migration_service.dart';
 import '/services/spotify/spotify_source_track.dart';
 import '/services/spotify/track_matcher.dart';
+import '../Playlist/playlist_screen_controller.dart';
 
 /// UI phases of the migration flow.
 enum MigrationPhase {
@@ -24,6 +25,9 @@ enum MigrationPhase {
   migrating,
   done,
 }
+
+/// Sorting options for imported tracks.
+enum ImportSortType { playlistOrder, title, artist, duration }
 
 /// Filter for the review list.
 enum ReviewFilter { all, needsReview, matched, unavailable }
@@ -113,28 +117,90 @@ class SpotifyImportController extends GetxController {
   int get searchingCount =>
       items.where((e) => e.status == MigrationStatus.searching).length;
 
-  /// Tracks visible under the current review filter.
-  List<PlaylistMigrationItem> get filteredItems {
-    switch (reviewFilter.value) {
-      case ReviewFilter.all:
-        return items;
-      case ReviewFilter.needsReview:
-        return items.where((e) => e.needsReview).toList();
-      case ReviewFilter.matched:
-        return items.where((e) => e.hasMatch).toList();
-      case ReviewFilter.unavailable:
-        return items
-            .where((e) => e.status == MigrationStatus.unmatched ||
-                e.status == MigrationStatus.failed ||
-                e.status == MigrationStatus.skipped)
-            .toList();
+  // -- sorting -------------------------------------------------------------
+  final sortType = ImportSortType.playlistOrder.obs;
+  final sortAscending = true.obs;
+
+  void setSort(ImportSortType type, {bool? ascending}) {
+    if (type == sortType.value && ascending == null) {
+      sortAscending.value = !sortAscending.value;
+    } else {
+      sortType.value = type;
+      sortAscending.value = ascending ?? true;
     }
   }
 
-  /// Matches eligible for the destination, honoring the confidence filter.
-  List<PlaylistMigrationItem> get eligibleItems => items
-      .where((e) => service.passesConfidenceFilter(e, confidenceFilter.value))
-      .toList();
+  List<PlaylistMigrationItem> _applySort(List<PlaylistMigrationItem> list) {
+    final sorted = List<PlaylistMigrationItem>.from(list);
+    sorted.sort((a, b) {
+      int cmp = 0;
+      switch (sortType.value) {
+        case ImportSortType.playlistOrder:
+          final numA = a.sourceTrack.trackNumber ?? 0;
+          final numB = b.sourceTrack.trackNumber ?? 0;
+          cmp = numA.compareTo(numB);
+          break;
+        case ImportSortType.title:
+          final titleA =
+              (a.matchedTrack?.title ?? a.sourceTrack.title).toLowerCase();
+          final titleB =
+              (b.matchedTrack?.title ?? b.sourceTrack.title).toLowerCase();
+          cmp = titleA.compareTo(titleB);
+          break;
+        case ImportSortType.artist:
+          final artistA = (a.matchedTrack?.artist ??
+                  a.sourceTrack.artists.join(', '))
+              .toLowerCase();
+          final artistB = (b.matchedTrack?.artist ??
+                  b.sourceTrack.artists.join(', '))
+              .toLowerCase();
+          cmp = artistA.compareTo(artistB);
+          break;
+        case ImportSortType.duration:
+          final durA = a.matchedTrack?.duration?.inMilliseconds ??
+              a.sourceTrack.durationMs;
+          final durB = b.matchedTrack?.duration?.inMilliseconds ??
+              b.sourceTrack.durationMs;
+          cmp = durA.compareTo(durB);
+          break;
+      }
+      return sortAscending.value ? cmp : -cmp;
+    });
+    return sorted;
+  }
+
+  /// Tracks visible under the current review filter, sorted according to [sortType].
+  List<PlaylistMigrationItem> get filteredItems {
+    final List<PlaylistMigrationItem> base;
+    switch (reviewFilter.value) {
+      case ReviewFilter.all:
+        base = items;
+        break;
+      case ReviewFilter.needsReview:
+        base = items.where((e) => e.needsReview).toList();
+        break;
+      case ReviewFilter.matched:
+        base = items.where((e) => e.hasMatch).toList();
+        break;
+      case ReviewFilter.unavailable:
+        base = items
+            .where((e) =>
+                e.status == MigrationStatus.unmatched ||
+                e.status == MigrationStatus.failed ||
+                e.status == MigrationStatus.skipped)
+            .toList();
+        break;
+    }
+    return _applySort(base);
+  }
+
+  /// Matches eligible for the destination, honoring the confidence filter and sorted order.
+  List<PlaylistMigrationItem> get eligibleItems {
+    final base = items
+        .where((e) => service.passesConfidenceFilter(e, confidenceFilter.value))
+        .toList();
+    return _applySort(base);
+  }
 
   // -- lyrics summary -----------------------------------------------------
   int get lyricsSyncedCount =>
@@ -526,6 +592,16 @@ class SpotifyImportController extends GetxController {
     try {
       lastDestination.value = destination;
       lastResult.value = await action();
+      if (destination == 'addToLikedSongs'.tr || destination == 'likedSongs'.tr) {
+        try {
+          if (Get.isRegistered<PlaylistScreenController>(
+              tag: const Key("LIBFAV").hashCode.toString())) {
+            final plCtrl = Get.find<PlaylistScreenController>(
+                tag: const Key("LIBFAV").hashCode.toString());
+            plCtrl.fetchSongsfromDatabase("LIBFAV");
+          }
+        } catch (_) {}
+      }
       await service.completeMigration(
         spotifyPlaylistId: playlistId.value,
         spotifyPlaylistName: playlistName.value,
@@ -562,5 +638,7 @@ class SpotifyImportController extends GetxController {
     wasCancelled.value = false;
     reviewFilter.value = ReviewFilter.all;
     confidenceFilter.value = ConfidenceFilter.highAndMedium;
+    sortType.value = ImportSortType.playlistOrder;
+    sortAscending.value = true;
   }
 }

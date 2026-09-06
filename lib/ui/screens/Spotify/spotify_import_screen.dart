@@ -817,40 +817,48 @@ class _ReviewView extends StatelessWidget {
                     ],
                   )),
               const SizedBox(height: 8),
-              Obx(() => SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _FilterChip(
-                          label: 'all'.tr,
-                          selected:
-                              controller.reviewFilter.value == ReviewFilter.all,
-                          onSelected: () => controller.reviewFilter.value =
-                              ReviewFilter.all,
+              Obx(() => Row(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _FilterChip(
+                                label: 'all'.tr,
+                                selected: controller.reviewFilter.value ==
+                                    ReviewFilter.all,
+                                onSelected: () => controller.reviewFilter.value =
+                                    ReviewFilter.all,
+                              ),
+                              _FilterChip(
+                                label: 'filterNeedsReview'.tr,
+                                selected: controller.reviewFilter.value ==
+                                    ReviewFilter.needsReview,
+                                onSelected: () => controller.reviewFilter.value =
+                                    ReviewFilter.needsReview,
+                              ),
+                              _FilterChip(
+                                label: 'filterMatched'.tr,
+                                selected: controller.reviewFilter.value ==
+                                    ReviewFilter.matched,
+                                onSelected: () => controller.reviewFilter.value =
+                                    ReviewFilter.matched,
+                              ),
+                              _FilterChip(
+                                label: 'filterUnavailable'.tr,
+                                selected: controller.reviewFilter.value ==
+                                    ReviewFilter.unavailable,
+                                onSelected: () => controller.reviewFilter.value =
+                                    ReviewFilter.unavailable,
+                              ),
+                            ],
+                          ),
                         ),
-                        _FilterChip(
-                          label: 'filterNeedsReview'.tr,
-                          selected: controller.reviewFilter.value ==
-                              ReviewFilter.needsReview,
-                          onSelected: () => controller.reviewFilter.value =
-                              ReviewFilter.needsReview,
-                        ),
-                        _FilterChip(
-                          label: 'filterMatched'.tr,
-                          selected: controller.reviewFilter.value ==
-                              ReviewFilter.matched,
-                          onSelected: () => controller.reviewFilter.value =
-                              ReviewFilter.matched,
-                        ),
-                        _FilterChip(
-                          label: 'filterUnavailable'.tr,
-                          selected: controller.reviewFilter.value ==
-                              ReviewFilter.unavailable,
-                          onSelected: () => controller.reviewFilter.value =
-                              ReviewFilter.unavailable,
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 4),
+                      _SortFilterButton(controller: controller),
+                    ],
                   )),
               const SizedBox(height: 12),
               Row(
@@ -933,6 +941,119 @@ class _FilterChip extends StatelessWidget {
         visualDensity: VisualDensity.compact,
       ),
     );
+  }
+}
+
+class _SortFilterButton extends StatelessWidget {
+  final SpotifyImportController controller;
+  const _SortFilterButton({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Obx(() {
+      final currentSort = controller.sortType.value;
+      final isAscending = controller.sortAscending.value;
+
+      return PopupMenuButton<ImportSortType>(
+        tooltip: 'sort'.tr.isNotEmpty ? 'sort'.tr : 'Sort',
+        padding: EdgeInsets.zero,
+        icon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.sort,
+                size: 20,
+                color: currentSort != ImportSortType.playlistOrder
+                    ? theme.colorScheme.primary
+                    : null),
+            Icon(
+              isAscending ? Icons.arrow_upward : Icons.arrow_downward,
+              size: 14,
+              color: currentSort != ImportSortType.playlistOrder
+                  ? theme.colorScheme.primary
+                  : theme.iconTheme.color?.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+        onSelected: (ImportSortType type) {
+          controller.setSort(type);
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: ImportSortType.playlistOrder,
+            child: Row(
+              children: [
+                Icon(
+                  currentSort == ImportSortType.playlistOrder
+                      ? Icons.check
+                      : Icons.format_list_numbered,
+                  size: 18,
+                  color: currentSort == ImportSortType.playlistOrder
+                      ? theme.colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                const Text('Playlist order'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: ImportSortType.title,
+            child: Row(
+              children: [
+                Icon(
+                  currentSort == ImportSortType.title
+                      ? Icons.check
+                      : Icons.title,
+                  size: 18,
+                  color: currentSort == ImportSortType.title
+                      ? theme.colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                const Text('Title'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: ImportSortType.artist,
+            child: Row(
+              children: [
+                Icon(
+                  currentSort == ImportSortType.artist
+                      ? Icons.check
+                      : Icons.person,
+                  size: 18,
+                  color: currentSort == ImportSortType.artist
+                      ? theme.colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                const Text('Artist'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: ImportSortType.duration,
+            child: Row(
+              children: [
+                Icon(
+                  currentSort == ImportSortType.duration
+                      ? Icons.check
+                      : Icons.timer_outlined,
+                  size: 18,
+                  color: currentSort == ImportSortType.duration
+                      ? theme.colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                const Text('Duration'),
+              ],
+            ),
+          ),
+        ],
+      );
+    });
   }
 }
 
