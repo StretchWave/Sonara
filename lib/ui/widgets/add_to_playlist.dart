@@ -8,6 +8,7 @@ import '../../services/piped_service.dart';
 import '/models/media_Item_builder.dart';
 import '/ui/widgets/create_playlist_dialog.dart';
 import '../../models/playlist.dart';
+import '../../services/supabase/playlist_sync_service.dart';
 import 'common_dialog_widget.dart';
 import 'snackbar.dart';
 
@@ -210,8 +211,16 @@ class AddToPlaylistController extends GetxController {
           await plstBox.add(MediaItemBuilder.toJson(element));
         }
       }
+      final allTracks = plstBox.values
+          .map<MediaItem?>((item) => MediaItemBuilder.fromJson(item))
+          .whereType<MediaItem>()
+          .toList();
       await plstBox.close();
       additionInProgress.value = false;
+
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>().syncTracks(playlistId, allTracks);
+      }
       return true;
     } else {
       final videosId = songs.map((e) => e.id).toList();

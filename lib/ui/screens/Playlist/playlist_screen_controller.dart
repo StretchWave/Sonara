@@ -20,6 +20,7 @@ import '../../../services/music_service.dart';
 import '../../../services/piped_service.dart';
 import '../Home/home_screen_controller.dart';
 import '../Library/library_controller.dart';
+import '../../../services/supabase/playlist_sync_service.dart';
 
 ///PlaylistScreenController handles playlist screen
 ///
@@ -197,6 +198,9 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
       if (!content.isCloudPlaylist && !add) {
         final plstbox = await Hive.openBox(content.playlistId);
         plstbox.deleteFromDisk();
+        if (Get.isRegistered<PlaylistSyncService>()) {
+          Get.find<PlaylistSyncService>().deleteCloudPlaylist(content.playlistId);
+        }
       }
       return true;
     } catch (e) {
@@ -216,6 +220,15 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
 
     // Update the playlist thumbnail based on the first song's thumbnail
     _updatePlaylistThumbSongBased();
+
+    if (Get.isRegistered<PlaylistSyncService>()) {
+      if (playlist.value.playlistId == "LIBFAV") {
+        Get.find<PlaylistSyncService>().syncAllFavoritesFromLocal();
+      } else {
+        Get.find<PlaylistSyncService>()
+            .syncTracks(playlist.value.playlistId, songListCopy);
+      }
+    }
   }
 
   @override
@@ -241,6 +254,14 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
 
     // Update the playlist thumbnail based on the first song's thumbnail
     _updatePlaylistThumbSongBased();
+
+    if (Get.isRegistered<PlaylistSyncService>()) {
+      if (id == "LIBFAV") {
+        Get.find<PlaylistSyncService>().syncAllFavoritesFromLocal();
+      } else {
+        Get.find<PlaylistSyncService>().syncTracks(id, songList.toList());
+      }
+    }
   }
 
   void addNRemoveItemsinList(MediaItem? item,

@@ -22,6 +22,7 @@ import '/ui/utils/theme_controller.dart';
 import 'components/custom_expansion_tile.dart';
 import 'components/provider_health_screen.dart';
 import 'components/configure_sources_screen.dart';
+import 'components/cloud_sync_tile.dart';
 import 'settings_screen_controller.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -806,6 +807,7 @@ class SettingsScreen extends StatelessWidget {
                   title: "${"backup".tr} & ${"restore".tr}",
                   icon: Icons.restore,
                   children: [
+                    const CloudSyncTile(),
                     ListTile(
                       contentPadding: const EdgeInsets.only(left: 5, right: 10),
                       title: Text("backupAppData".tr),

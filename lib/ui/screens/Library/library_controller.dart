@@ -18,6 +18,7 @@ import '/models/album.dart';
 import '/models/artist.dart';
 import '/models/media_Item_builder.dart';
 import '/models/playlist.dart';
+import '/services/supabase/playlist_sync_service.dart';
 
 class LibrarySongsController extends GetxController {
   late RxList<MediaItem> librarySongsList = RxList();
@@ -280,6 +281,9 @@ class LibraryPlaylistsController extends GetxController
     final box = await Hive.openBox("LibraryPlaylists");
     box.put(playlist.playlistId, playlist.toJson());
     refreshLib();
+    if (!playlist.isPipedPlaylist && Get.isRegistered<PlaylistSyncService>()) {
+      Get.find<PlaylistSyncService>().updatePlaylistMetadata(playlist);
+    }
   }
 
   void removePipedPlaylists() {
@@ -353,6 +357,9 @@ class LibraryPlaylistsController extends GetxController
         box.put(playlist.playlistId, playlist.toJson());
       }
       refreshLib();
+      if (!playlist.isPipedPlaylist && Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>().updatePlaylistMetadata(playlist);
+      }
       return true;
     }
     return false;
@@ -414,6 +421,13 @@ class LibraryPlaylistsController extends GetxController
             .addToPlaylist(newplst.playlistId, songIds);
       }
       creationInProgress.value = false;
+      if (playlistCreationMode.value == "local" &&
+          Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>().uploadNewPlaylist(
+          newplst,
+          createPlaylistNaddSong ? songItems : null,
+        );
+      }
       return true;
     }
     return false;

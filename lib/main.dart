@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:terminate_restart/terminate_restart.dart';
 
 import '/ui/screens/Search/search_screen_controller.dart';
@@ -13,6 +14,8 @@ import '/services/piped_service.dart';
 import '/services/playback_stats_service.dart';
 import '/services/lastfm_service.dart';
 import '/services/recommendation_service.dart';
+import '/services/supabase/supabase_service.dart';
+import '/services/supabase/playlist_sync_service.dart';
 import 'utils/app_link_controller.dart';
 import '/services/audio_handler.dart';
 import '/services/music_service.dart';
@@ -29,11 +32,21 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initHive();
   _setAppInitPrefs();
+  try {
+    await Supabase.initialize(
+      url: 'https://wycltgbzbhvnfavwxgpm.supabase.co',
+      anonKey: 'sb_publishable_i_8L3mLklUOv_ERRrvV94A_zya-5W-v',
+    );
+  } catch (e) {
+    // If Supabase initialization fails unexpectedly (e.g. offline startup),
+    // Sonara gracefully continues with 100% offline local functionality.
+  }
   startApplicationServices();
   Get.put<AudioHandler>(await initAudioService(), permanent: true);
   // Start background listeners that depend on the audio handler
   Get.find<PlaybackStatsService>();
   Get.find<LastFmService>();
+  Get.find<PlaylistSyncService>();
   WidgetsBinding.instance.addObserver(LifecycleHandler());
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   TerminateRestart.instance.initialize();
@@ -117,6 +130,8 @@ Future<void> startApplicationServices() async {
   Get.lazyPut(() => PlaybackStatsService(), fenix: true);
   Get.lazyPut(() => LastFmService(), fenix: true);
   Get.lazyPut(() => RecommendationService(), fenix: true);
+  Get.lazyPut(() => SupabaseService(), fenix: true);
+  Get.lazyPut(() => PlaylistSyncService(), fenix: true);
   if (GetPlatform.isDesktop) {
     Get.lazyPut(() => SearchScreenController(), fenix: true);
     Get.put(DesktopSystemTray());
@@ -138,6 +153,7 @@ initHive() async {
   await Hive.openBox('SongsUrlCache');
   await Hive.openBox("AppPrefs");
   await Hive.openBox("LyricsOffset");
+  await Hive.openBox("PlaylistSyncMetadata");
 }
 
 void _setAppInitPrefs() {

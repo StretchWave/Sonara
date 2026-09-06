@@ -56,6 +56,14 @@ mixin ProcessLink {
       Navigator.of(Get.context!).pop();
     }
 
+    // Ignore Supabase auth callbacks (handled automatically by Supabase)
+    if (uri.scheme == "io.supabase.sonara" ||
+        uri.host == "login-callback" ||
+        uri.queryParameters.containsKey("code") ||
+        uri.fragment.contains("access_token")) {
+      return;
+    }
+
     if (uri.host == "youtube.com" ||
         uri.host == "music.youtube.com" ||
         uri.host == "youtu.be" ||

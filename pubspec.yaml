@@ -84,6 +84,7 @@ dependencies:
     git:
       url: https://github.com/anandnet/youtube_explode_dart.git
       ref: 1d9ec9baa806705b1d859260eeb389ec28c6b024
+  supabase_flutter: ^2.10.2
 dev_dependencies:
 
   # The "flutter_lints" package below contains a set of recommended lints to

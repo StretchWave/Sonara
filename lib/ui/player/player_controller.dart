@@ -11,6 +11,7 @@ import '../../services/downloader.dart';
 import '../screens/Playlist/playlist_screen_controller.dart';
 import '../widgets/snackbar.dart';
 import '/services/synced_lyrics_service.dart';
+import '/services/supabase/playlist_sync_service.dart';
 import '/ui/screens/Settings/settings_screen_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../services/windows_audio_service.dart';
@@ -703,6 +704,12 @@ class PlayerController extends GetxController
         isCurrentSongFav.isTrue) {
       Get.find<Downloader>().download(currMediaItem);
     }
+    try {
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>()
+            .syncFavoriteSong(currMediaItem, isAdded: isCurrentSongFav.value);
+      }
+    } catch (_) {}
   }
 
   // ignore: prefer_typing_uninitialized_variables

@@ -11,6 +11,7 @@ import '/services/spotify/playlist_migration_service.dart';
 import '/services/spotify/spotify_source_track.dart';
 import '/services/spotify/track_matcher.dart';
 import '../Playlist/playlist_screen_controller.dart';
+import '/services/supabase/playlist_sync_service.dart';
 
 /// UI phases of the migration flow.
 enum MigrationPhase {
@@ -599,6 +600,9 @@ class SpotifyImportController extends GetxController {
             final plCtrl = Get.find<PlaylistScreenController>(
                 tag: const Key("LIBFAV").hashCode.toString());
             plCtrl.fetchSongsfromDatabase("LIBFAV");
+          }
+          if (Get.isRegistered<PlaylistSyncService>()) {
+            Get.find<PlaylistSyncService>().syncAllFavoritesFromLocal();
           }
         } catch (_) {}
       }

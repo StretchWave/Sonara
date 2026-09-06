@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/downloader.dart';
 import '../screens/Playlist/playlist_screen_controller.dart';
 import '../screens/Settings/settings_screen_controller.dart';
+import '../../services/supabase/playlist_sync_service.dart';
 import '/utils/helper.dart';
 import '/services/piped_service.dart';
 import '/ui/widgets/sleep_timer_bottom_sheet.dart';
@@ -393,6 +394,12 @@ class SongInfoController extends GetxController
         isCurrentSongFav.isTrue) {
       Get.find<Downloader>().download(song);
     }
+    try {
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>()
+            .syncFavoriteSong(song, isAdded: isCurrentSongFav.value);
+      }
+    } catch (_) {}
   }
 }
 
@@ -443,6 +450,21 @@ mixin RemoveSongFromPlaylistMixin {
     } catch (e) {
       printERROR("Some Error in removeSongFromPlaylist (might irrelavant): $e");
     }
+
+    try {
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        if (playlist.playlistId == "LIBFAV") {
+          Get.find<PlaylistSyncService>().syncFavoriteSong(item, isAdded: false);
+        } else if (!playlist.isPipedPlaylist &&
+            playlist.playlistId != "SongDownloads" &&
+            playlist.playlistId != "SongsCache") {
+          final plstCntroller = Get.find<PlaylistScreenController>(
+              tag: Key(playlist.playlistId).hashCode.toString());
+          Get.find<PlaylistSyncService>()
+              .syncTracks(playlist.playlistId, plstCntroller.songList.toList());
+        }
+      }
+    } catch (_) {}
 
     if (playlist.playlistId == "SongDownloads" ||
         playlist.playlistId == "SongsCache") {
