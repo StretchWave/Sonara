@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../stream_service.dart' show Audio, Codec;
 import '../audio_source_provider.dart';
 import '../matching/track_candidate.dart';
@@ -23,6 +25,46 @@ class SoundCloudAudioProvider extends AudioSourceProvider {
 
   static const String _browserUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+
+  /// Picks the single search result that actually matches [query], or
+  /// null when none is acceptable (covers, remixes, slowed/reverb uploads,
+  /// wrong artists, implausible durations).
+  ///
+  /// Returns the raw SoundCloud track item so the caller can build a
+  /// stream from it. Exposed for tests.
+  @visibleForTesting
+  static Map<String, dynamic>? pickBestMatchItem(
+    List<dynamic> collection,
+    SongQuery query,
+  ) {
+    dynamic bestTrack;
+    var bestScore = rejectScore;
+    for (final item in collection) {
+      final trackId = '${item['id'] ?? ''}';
+      final trackTitle = item['title'] as String? ?? '';
+      final trackUser =
+          item['user']?['username'] as String? ?? 'Unknown Artist';
+      final trackDurationMs = (item['duration'] as num?)?.toInt();
+
+      final candidate = TrackCandidate(
+        trackId: trackId,
+        title: trackTitle,
+        artists: [trackUser],
+        durationMs: trackDurationMs,
+      );
+
+      final score = scoreCandidate(
+        candidate: candidate,
+        query: query,
+      );
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTrack = item;
+      }
+    }
+    return bestTrack as Map<String, dynamic>?;
+  }
 
   static String? _cachedClientId;
   static DateTime? _clientIdExpiresAt;
@@ -132,38 +174,18 @@ class SoundCloudAudioProvider extends AudioSourceProvider {
         );
       }
 
-      // Find best matching track candidate
-      dynamic bestTrack;
-      int bestScore = -100;
-
-      for (final item in collection) {
-        final trackId = '${item['id'] ?? ''}';
-        final trackTitle = item['title'] as String? ?? '';
-        final trackUser =
-            item['user']?['username'] as String? ?? 'Unknown Artist';
-        final trackDurationMs = (item['duration'] as num?)?.toInt();
-
-        final candidate = TrackCandidate(
-          trackId: trackId,
-          title: trackTitle,
-          artists: [trackUser],
-          durationMs: trackDurationMs,
+      // Find best matching track candidate. SoundCloud is full of covers,
+      // remixes and "slowed + reverb" uploads, so we only accept a result
+      // that actually matches the requested song. When nothing does, we
+      // fail here and let the router fall through to the next source
+      // (YouTube) instead of playing SoundCloud's most popular upload,
+      // which is often the wrong version.
+      final bestTrack = pickBestMatchItem(collection, query);
+      if (bestTrack == null) {
+        return const ResolvedStream(
+          playable: false,
+          statusMSG: 'No acceptable match on SoundCloud',
         );
-
-        final score = scoreCandidate(
-          candidate: candidate,
-          query: query,
-        );
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestTrack = item;
-        }
-      }
-
-      if (bestTrack == null || bestScore <= rejectScore) {
-        // Use first track if available
-        bestTrack = collection.first;
       }
 
       final media = bestTrack['media'];

@@ -9,6 +9,33 @@ import '/models/artist.dart';
 import '/ui/widgets/content_list_widget.dart';
 import 'separate_tab_item_widget.dart';
 
+class SearchErrorView extends StatelessWidget {
+  const SearchErrorView({super.key, required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            "networkError1".tr,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: onRetry,
+            child: Text("retry".tr),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ResultWidget extends StatelessWidget {
   const ResultWidget({super.key, this.isv2Used = false});
   final bool isv2Used;

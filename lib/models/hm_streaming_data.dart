@@ -5,12 +5,17 @@ class HMStreamingData {
   final String statusMSG;
   final Audio? lowQualityAudio;
   final Audio? highQualityAudio;
+
+  /// Stable id of the provider that produced this stream
+  /// (`qobuz`, `tidal`, `youtube_music`, ...). Empty when unknown.
+  final String providerId;
   int qualityIndex = 1;
   HMStreamingData({
     required this.playable,
     required this.statusMSG,
     this.lowQualityAudio,
     this.highQualityAudio,
+    this.providerId = '',
   });
 
   setQualityIndex(int index) {
@@ -29,6 +34,7 @@ class HMStreamingData {
       return HMStreamingData(
         playable: false,
         statusMSG: json['statusMSG'],
+        providerId: (json['providerId'] as String?) ?? '',
       );
     }
     final lowQualityAudio = Audio.fromJson(json['lowQualityAudio']);
@@ -36,6 +42,7 @@ class HMStreamingData {
     return HMStreamingData(
         playable: json['playable'],
         statusMSG: json['statusMSG'],
+        providerId: (json['providerId'] as String?) ?? '',
         lowQualityAudio: lowQualityAudio,
         highQualityAudio: highQualityAudio);
   }
@@ -43,6 +50,7 @@ class HMStreamingData {
   Map<String, dynamic> toJson() => {
         "playable": playable,
         "statusMSG": statusMSG,
+        "providerId": providerId,
         "lowQualityAudio": lowQualityAudio?.toJson(),
         "highQualityAudio": highQualityAudio?.toJson(),
       };

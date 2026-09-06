@@ -13,7 +13,7 @@ import '/ui/screens/Home/home_screen_controller.dart';
 import '/ui/screens/Settings/settings_screen_controller.dart';
 
 class ArtistScreenController extends GetxController
-    with GetSingleTickerProviderStateMixin {
+    with GetTickerProviderStateMixin {
   final isArtistContentFetced = false.obs;
   final navigationRailCurrentIndex = 0.obs;
   final musicServices = Get.find<MusicServices>();
@@ -40,6 +40,11 @@ class ArtistScreenController extends GetxController
     _init(args[0], args[1]);
     if (GetPlatform.isDesktop ||
         Get.find<SettingsScreenController>().isBottomNavBarEnabled.isTrue) {
+      // Tear down a previous TabController (its AnimationController borrows a
+      // ticker from this controller) so a recycled instance that gets
+      // initialized more than once does not leak or trip a single-ticker
+      // assertion.
+      tabController?.dispose();
       tabController = TabController(vsync: this, length: 5);
       tabController?.animation?.addListener(() {
         int indexChange = tabController!.offset.round();

@@ -25,7 +25,7 @@ import '../Library/library_controller.dart';
 ///
 ///Playlist title,image,songs
 class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
-    with AdditionalOpeartionMixin, GetSingleTickerProviderStateMixin {
+    with AdditionalOpeartionMixin, GetTickerProviderStateMixin {
   final MusicServices _musicServices = Get.find<MusicServices>();
   final playlist = Playlist(
     title: "",
@@ -42,26 +42,33 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
 
   // Title animation
 
-  late AnimationController _animationController;
+  AnimationController? _animationController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _heightAnimation;
 
-  AnimationController get animationController => _animationController;
+  AnimationController get animationController => _animationController!;
   Animation<double> get scaleAnimation => _scaleAnimation;
   Animation<double> get heightAnimation => _heightAnimation;
   @override
   void onInit() {
     super.onInit();
-    _animationController = AnimationController(
+    // Tear down a previous animation controller before creating a new one.
+    // Combined with GetTickerProviderStateMixin this keeps a controller that
+    // gets initialized more than once (e.g. a recycled instance or an edge
+    // case in GetX route disposal) from tripping the single-ticker assertion
+    // and from leaking the previous controller.
+    _animationController?.dispose();
+    final animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
+    _animationController = animationController;
 
     _scaleAnimation =
         Tween<double>(begin: 0, end: 1.0).animate(animationController);
 
-    _heightAnimation =
-        Tween<double>(begin: 10.0, end: 75.0).animate(CurvedAnimation(parent: animationController, curve: Curves.easeOutBack));
+    _heightAnimation = Tween<double>(begin: 10.0, end: 75.0)
+        .animate(CurvedAnimation(parent: animationController, curve: Curves.easeOutBack));
 
     final args = Get.arguments as List;
     final Playlist? playlist = args[0];
@@ -84,7 +91,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
 
     if (!isIdOnly && !playlist_.isCloudPlaylist) {
       playlist.value = playlist_;
-      _animationController.forward();
+      animationController.forward();
       fetchSongsfromDatabase(playlistId);
       isContentFetched.value = true;
 
@@ -96,7 +103,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
 
     if (!isIdOnly) {
       playlist.value = playlist_;
-      _animationController.forward();
+      animationController.forward();
     }
 
     try {
@@ -139,7 +146,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
     if (isIdOnly) {
       content['playlistId'] = id;
       playlist.value = Playlist.fromJson(content);
-      _animationController.forward();
+      animationController.forward();
     }
     songList.value = List<MediaItem>.from(content['tracks']);
     checkDownloadStatus();
@@ -294,7 +301,7 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
   @override
   void onClose() {
     tempListContainer.clear();
-    _animationController.dispose();
+    _animationController?.dispose();
     Get.find<HomeScreenController>().whenHomeScreenOnTop();
     super.onClose();
   }

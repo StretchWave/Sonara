@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 
@@ -22,6 +23,8 @@ import '/models/hm_streaming_data.dart';
 import '/ui/player/player_controller.dart';
 import '../ui/screens/Home/home_screen_controller.dart';
 import '/services/background_task.dart';
+import '/services/duration_match.dart';
+import '/services/providers/matching/isrc_resolver.dart';
 import '/services/permission_service.dart';
 import '/services/providers/song_query.dart';
 import '/services/providers/stream_route_config.dart';
@@ -289,7 +292,142 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         final newMediaItem = currentSong.copyWith(duration: duration);
         mediaItem.add(newMediaItem);
       }
+      await _checkDurationMismatch(currentSong, duration);
     });
+  }
+
+  /// Cross-catalog sources (SoundCloud, Qobuz, archive.org, ...) are only a
+  /// quality upgrade for OFFICIAL song audio. When the user picked a regular
+  /// YouTube video — a cover, live upload, lyric video, etc. — a catalog
+  /// recording would be a *different track*, so those always play their
+  /// exact YouTube video instead of being substituted.
+  String _resolveProviderForSong(MediaItem song, String requested) =>
+      providerForVideoType(
+          song.extras?['videoType'] as String? ?? '', requested);
+
+  /// Pure playback-source policy: only `MUSIC_VIDEO_TYPE_ATV` (official
+  /// song audio) and unknown/empty types (library songs, restored
+  /// sessions) are eligible for catalog substitution; every other video
+  /// type (covers, live uploads, ...) is pinned to YouTube, which plays
+  /// the exact video the user picked.
+  @visibleForTesting
+  static String providerForVideoType(String videoType, String requested) {
+    if (videoType.isNotEmpty && videoType != 'MUSIC_VIDEO_TYPE_ATV') {
+      return 'youtube_music';
+    }
+    return requested;
+  }
+
+  /// ISRC resolver for playback matching (MetroFuse approach).
+  final IsrcResolver _isrcResolver = IsrcResolver();
+
+  /// Per-mediaId cache of resolved ISRCs; empty means "could not resolve".
+  final Map<String, String> _isrcCache = {};
+
+  /// Resolves a trusted ISRC for [song] so catalog providers can match the
+  /// exact recording. Cached per media id. Never throws.
+  Future<String?> _resolvePlaybackIsrc(
+    SongQuery? song,
+    String forceProviderId,
+  ) async {
+    if (song == null) return null;
+    // Covers/non-official videos are pinned to YouTube — no catalog match,
+    // so an ISRC would be unused. Skip the extra catalog lookup.
+    if (forceProviderId == 'youtube_music') return null;
+    final cached = _isrcCache[song.mediaId];
+    if (cached != null) return cached.isEmpty ? null : cached;
+    String? isrc;
+    try {
+      isrc = await _isrcResolver.resolve(
+        song: song.title,
+        artist: song.artists.isNotEmpty ? song.artists.first : '',
+        durationMs: song.durationMs,
+      );
+    } catch (_) {
+      isrc = null;
+    }
+    _isrcCache[song.mediaId] = isrc ?? '';
+    return isrc;
+  }
+
+  /// Returns a copy of [config] whose provider order demotes SoundCloud and
+  /// Internet Archive to fallbacks (after YouTube) for playback, because
+  /// they cannot verify they hold the exact recording the user picked.
+  ///
+  /// The lossless catalog sources (Qobuz/Tidal/Deezer/Amazon/Apple), which
+  /// match by ISRC, keep their configured relative order.
+  static StreamRouteConfig playbackConfig(StreamRouteConfig config) {
+    final reordered = <String>[
+      ...config.providerOrder.where(
+          (id) => id != 'soundcloud' && id != 'internet_archive'),
+    ];
+    if (!reordered.contains('youtube_music')) reordered.add('youtube_music');
+    reordered.addAll(const ['soundcloud', 'internet_archive']);
+    return StreamRouteConfig(
+      qobuzEnabled: config.qobuzEnabled,
+      qobuzInstances: config.qobuzInstances,
+      qobuzCountry: config.qobuzCountry,
+      qobuzQuality: config.qobuzQuality,
+      tidalEnabled: config.tidalEnabled,
+      tidalEndpoints: config.tidalEndpoints,
+      tidalQuality: config.tidalQuality,
+      soundcloudEnabled: config.soundcloudEnabled,
+      internetArchiveEnabled: config.internetArchiveEnabled,
+      deezerEnabled: config.deezerEnabled,
+      deezerEndpoints: config.deezerEndpoints,
+      deezerQuality: config.deezerQuality,
+      appleEnabled: config.appleEnabled,
+      appleEndpoints: config.appleEndpoints,
+      amazonEnabled: config.amazonEnabled,
+      amazonEndpoints: config.amazonEndpoints,
+      amazonQuality: config.amazonQuality,
+      instagramEnabled: config.instagramEnabled,
+      instagramCookie: config.instagramCookie,
+      matchOverrides: config.matchOverrides,
+      visitorId: config.visitorId,
+      providerOrder: reordered,
+    );
+  }
+
+  /// Guards the fallback re-resolve so a single mismatch only ever triggers
+  /// one replay (the replayed stream reports YouTube as its source).
+  bool _handlingDurationMismatch = false;
+
+  /// When a non-YouTube source (Qobuz/Tidal/Deezer/...) plays a copy whose
+  /// real length is far shorter than the song's known length — a preview or
+  /// the wrong recording — re-resolve the song from YouTube and restart it.
+  Future<void> _checkDurationMismatch(MediaItem song, Duration actual) async {
+    if (_handlingDurationMismatch) return;
+    final expected = song.duration;
+    final expectedMs = expected?.inMilliseconds;
+    final source = song.extras?['streamSource'] as String? ?? '';
+    if (!isDurationMismatch(expectedMs, actual.inMilliseconds, source)) {
+      return;
+    }
+
+    _handlingDurationMismatch = true;
+    try {
+      // Only replay if the same song is still the current one — the user
+      // may have skipped in the async gap between the duration event and
+      // this check.
+      final currQueue = queue.value;
+      if (currentIndex == null ||
+          currentIndex! < 0 ||
+          currentIndex! >= currQueue.length ||
+          currQueue[currentIndex!].id != song.id) {
+        return;
+      }
+      printINFO('Duration mismatch on $source (expected ${expectedMs}ms, '
+          'got ${actual.inMilliseconds}ms) — falling back to YouTube');
+      await _player.stop();
+      await customAction('playByIndex', {
+        'index': currentIndex,
+        'newUrl': true,
+        'forceProviderId': 'youtube_music',
+      });
+    } finally {
+      _handlingDurationMismatch = false;
+    }
   }
 
   @override
@@ -520,10 +658,13 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         final songIndex = extras!['index'];
         currentIndex = songIndex;
         final isNewUrlReq = extras['newUrl'] ?? false;
+        final forceProviderId = (extras['forceProviderId'] as String?) ?? '';
         final currentSong = queue.value[currentIndex];
         final futureStreamInfo = checkNGetUrl(currentSong.id,
             generateNewUrl: isNewUrlReq,
-            song: SongQuery.fromMediaItem(currentSong));
+            song: SongQuery.fromMediaItem(currentSong),
+            forceProviderId:
+                _resolveProviderForSong(currentSong, forceProviderId));
         final bool restoreSession = extras['restoreSession'] ?? false;
         isSongLoading = true;
         playbackState.add(playbackState.value
@@ -554,6 +695,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         if (resolvedAudio?.label != null) {
           currentSong.extras!['streamLabel'] = resolvedAudio!.label;
         }
+        currentSong.extras!['streamSource'] = streamInfo.providerId;
         playbackState
             .add(playbackState.value.copyWith(queueIndex: currentIndex));
         await _playList.add(_createAudioSource(currentSong));
@@ -617,8 +759,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
       case 'setSourceNPlay':
         final currMed = (extras!['mediaItem'] as MediaItem);
-        final futureStreamInfo =
-            checkNGetUrl(currMed.id, song: SongQuery.fromMediaItem(currMed));
+        final futureStreamInfo = checkNGetUrl(currMed.id,
+            song: SongQuery.fromMediaItem(currMed),
+            forceProviderId: _resolveProviderForSong(currMed, ''));
         isSongLoading = true;
         currentIndex = 0;
         await _playList.clear();
@@ -641,6 +784,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         if (resolvedAudio?.label != null) {
           currMed.extras!['streamLabel'] = resolvedAudio!.label;
         }
+        currMed.extras!['streamSource'] = streamInfo.providerId;
 
         await _playList.add(_createAudioSource(currMed));
         isSongLoading = false;
@@ -868,7 +1012,8 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
   Future<HMStreamingData> checkNGetUrl(String songId,
       {bool generateNewUrl = false,
       bool offlineReplacementUrl = false,
-      SongQuery? song}) async {
+      SongQuery? song,
+      String forceProviderId = ''}) async {
     printINFO("Requested id : $songId");
     final songDownloadsBox = Hive.box("SongDownloads");
     if (!offlineReplacementUrl &&
@@ -951,12 +1096,26 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
       if (streamInfo == null) {
         final token = RootIsolateToken.instance;
-        final configJson = StreamRouteConfig.fromSettings().toJsonString();
+        final config = StreamRouteConfig.fromSettings();
+        // For playback, SoundCloud and Internet Archive cannot verify they
+        // hold the *exact* recording the user picked (no ISRC), so they are
+        // demoted to fallbacks — YouTube plays the exact video first, and
+        // the lossless catalog sources (which match by ISRC) keep their
+        // configured priority.
+        final cfg = playbackConfig(config);
+        final configJson = cfg.toJsonString();
         final songJson = song?.toJson();
+        // Resolve a trusted ISRC (MetroFuse approach) so catalog sources
+        // match the exact recording instead of fuzzy title/artist scoring.
+        final isrc = await _resolvePlaybackIsrc(song, forceProviderId);
+        if (isrc != null && songJson != null) {
+          songJson['isrc'] = isrc;
+        }
         final streamInfoJson = await Isolate.run(() => getStreamInfo(
             songId, token,
             configJson: configJson,
-            songJson: songJson));
+            songJson: songJson,
+            forceProviderId: forceProviderId));
         streamInfo = HMStreamingData.fromJson(streamInfoJson);
         if (streamInfo.playable) songsUrlCacheBox.put(songId, streamInfoJson);
       }

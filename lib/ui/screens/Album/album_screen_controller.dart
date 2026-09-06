@@ -16,17 +16,17 @@ import '../Library/library_controller.dart';
 ///
 ///Album title,image,songs
 class AlbumScreenController extends PlaylistAlbumScreenControllerBase
-    with AdditionalOpeartionMixin, GetSingleTickerProviderStateMixin {
+    with AdditionalOpeartionMixin, GetTickerProviderStateMixin {
   final album =
       Album(title: "", browseId: "", thumbnailUrl: "", artists: []).obs;
   final isOfflineAlbum = false.obs;
 
   // Title animation
-  late AnimationController _animationController;
+  AnimationController? _animationController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _heightAnimation;
 
-  AnimationController get animationController => _animationController;
+  AnimationController get animationController => _animationController!;
   Animation<double> get scaleAnimation => _scaleAnimation;
   Animation<double> get heightAnimation => _heightAnimation;
 
@@ -34,10 +34,16 @@ class AlbumScreenController extends PlaylistAlbumScreenControllerBase
   @override
   void onInit() {
     super.onInit();
-    _animationController = AnimationController(
+    // Tear down a previous animation controller before creating a new one;
+    // combined with GetTickerProviderStateMixin this keeps a controller that
+    // gets initialized more than once from tripping the single-ticker
+    // assertion or leaking the previous controller.
+    _animationController?.dispose();
+    final animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
+    _animationController = animationController;
 
     _scaleAnimation = Tween<double>(begin: 0, end: 1.0).animate(animationController);
 
@@ -132,7 +138,7 @@ class AlbumScreenController extends PlaylistAlbumScreenControllerBase
   @override
   void onClose() {
     tempListContainer.clear();
-    _animationController.dispose();
+    _animationController?.dispose();
     Get.find<HomeScreenController>().whenHomeScreenOnTop();
     super.onClose();
   }

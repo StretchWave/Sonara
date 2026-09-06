@@ -119,7 +119,10 @@ class Body extends StatelessWidget {
   Widget build(BuildContext context) {
     if (searchResScrController.navigationRailCurrentIndex.value == 0) {
       return Obx(() {
-        if (searchResScrController.isResultContentFetced.isTrue &&
+        if (searchResScrController.isSearchError.isTrue) {
+          return SearchErrorView(
+              onRetry: searchResScrController.retrySearch);
+        } else if (searchResScrController.isResultContentFetced.isTrue &&
             searchResScrController.railItems.isEmpty) {
           return Center(
             child: Column(

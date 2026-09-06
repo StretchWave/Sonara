@@ -45,11 +45,14 @@ int scoreCandidate({
 
   if (wantedTitle.isEmpty) return rejectScore;
 
-  // Check versions on the raw titles (parens intact), since candidates
-  // carry versions like "Song (Remix)" inside the title — normalization
-  // strips them and would hide the mismatch.
+  // Check versions on the raw titles and albums (parens intact), since
+  // candidates carry versions like "Song (Remix)" inside the title and
+  // "Album (Continuous Mix)" inside the album — normalization strips
+  // them and would hide the mismatch.
   final rawWanted = '${query.title} ${query.album ?? ''}'.toLowerCase();
-  final rawCandidate = candidate.title.toLowerCase();
+  final rawCandidate =
+      '${candidate.title} ${candidate.album ?? ''}'.toLowerCase();
+  final queryHasVersion = containsVersionDescriptor(rawWanted);
   if (hasVersionMismatch(rawWanted, rawCandidate)) {
     return rejectScore;
   }
@@ -115,7 +118,22 @@ int scoreCandidate({
     }
   }
 
-  // Duration plausibility.
+  // Same-recording gate: a cross-catalog candidate is only substituted for
+  // the user's chosen video when it is essentially the SAME recording.
+  // Length is the strongest signal — covers, mixes, live cuts and edits
+  // almost always differ from the original, and only an exact ISRC proves
+  // sameness beyond length. Without this gate, a cover video whose title
+  // happens to match the original would silently play the original instead
+  // of the cover the user picked.
+  if (wantedDurationSec != null &&
+      candidateDurationSec != null &&
+      !isrcExact) {
+    final diff = (wantedDurationSec - candidateDurationSec).abs();
+    final tolerance = wantedDurationSec < 90 ? 20 : 5;
+    if (diff > tolerance) return rejectScore;
+  }
+
+  // Duration plausibility (scoring bonus once the gate above passed).
   if (wantedDurationSec != null && candidateDurationSec != null) {
     final diff = (wantedDurationSec - candidateDurationSec).abs();
     if (diff <= 2) {
@@ -127,6 +145,13 @@ int scoreCandidate({
     } else if (diff >= 30) {
       score -= 120;
     }
+  }
+
+  // When the user asked for the plain song (no version in the query),
+  // prefer the unlabeled original over explicit variant labels such as
+  // "Original Mix" or "Radio Edit" of the same recording.
+  if (!queryHasVersion && !containsVersionDescriptor(rawCandidate)) {
+    score += 25;
   }
 
   if (candidate.hires) score += 15;

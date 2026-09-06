@@ -364,10 +364,9 @@ class PlayerController extends GetxController
         _playerPanelCheck();
         await _audioHandler.customAction("playByIndex", {"index": 0});
       } else {
-        if (Hive.box("AppPrefs").get("discoverContentType") == "BOLI") {
-          Get.find<HomeScreenController>()
-              .changeDiscoverContent("BOLI", songId: mediaItem!.id);
-        }
+        // keep home song selection in sync with the user's usage
+        Get.find<HomeScreenController>()
+            .refreshHomeContentOnSongPlay(songId: mediaItem!.id);
       }
     });
 
@@ -398,12 +397,10 @@ class PlayerController extends GetxController
     playinfrom.value =
         playfrom ?? PlaylingFrom(type: PlaylingFromType.SELECTION);
 
-    //for changing home content based on last interation
+    // for changing home song selection based on the user's usage
     Future.delayed(const Duration(seconds: 3), () {
-      if (Hive.box("AppPrefs").get("discoverContentType") == "BOLI") {
-        Get.find<HomeScreenController>()
-            .changeDiscoverContent("BOLI", songId: mediaItems[index].id);
-      }
+      Get.find<HomeScreenController>()
+          .refreshHomeContentOnSongPlay(songId: mediaItems[index].id);
     });
 
     _playerPanelCheck();

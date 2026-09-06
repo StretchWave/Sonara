@@ -12,6 +12,7 @@ class SearchResultScreenController extends GetxController
   final navigationRailCurrentIndex = 0.obs;
   final isResultContentFetced = false.obs;
   final isSeparatedResultContentFetced = false.obs;
+  final isSearchError = false.obs;
   final resultContent = <String, dynamic>{}.obs;
   final separatedResultContent = <String, dynamic>{}.obs;
   final musicServices = Get.find<MusicServices>();
@@ -52,39 +53,68 @@ class SearchResultScreenController extends GetxController
             separatedResultContent[railItems[value - 1]].isEmpty)) {
       final tabName = railItems[value - 1];
       final itemCount = (tabName == 'Songs' || tabName == 'Videos') ? 25 : 10;
-      final x = await musicServices.search(queryString.value,
-          filter: tabName.replaceAll(" ", "_").toLowerCase(), limit: itemCount, filterParams: resultContent['searchEndpoint'][tabName]);
-      separatedResultContent[tabName] = x[tabName];
-      additionalParamNext[tabName] = x['params'];
-      isSeparatedResultContentFetced.value = true;
-      final scrollController = scrollControllers[tabName];
-      (scrollController)!.addListener(() {
-        double maxScroll = scrollController.position.maxScrollExtent;
-        double currentScroll = scrollController.position.pixels;
-        if (currentScroll >= maxScroll / 2 &&
-            additionalParamNext[tabName]['additionalParams'] !=
-                '&ctoken=null&continuation=null') {
-          if (!continuationInProgress) {
-            printINFO("Acchhsk");
-            continuationInProgress = true;
-            getContinuationContents();
+      try {
+        final searchEndpoint = resultContent['searchEndpoint'];
+        final filterParams =
+            searchEndpoint is Map ? searchEndpoint[tabName] : null;
+        final x = await musicServices.search(queryString.value,
+            filter: tabName.replaceAll(" ", "_").toLowerCase(),
+            limit: itemCount,
+            filterParams: filterParams);
+        separatedResultContent[tabName] = x[tabName] ?? [];
+        additionalParamNext[tabName] = x['params'];
+
+        final scrollController = scrollControllers[tabName];
+        scrollController?.addListener(() {
+          double maxScroll = scrollController.position.maxScrollExtent;
+          double currentScroll = scrollController.position.pixels;
+          final additionalParams =
+              additionalParamNext[tabName]?['additionalParams'];
+          if (currentScroll >= maxScroll / 2 &&
+              additionalParams != null &&
+              additionalParams != '&ctoken=null&continuation=null') {
+            if (!continuationInProgress) {
+              continuationInProgress = true;
+              getContinuationContents();
+            }
           }
-        }
-      });
+        });
+      } catch (e) {
+        // A failed tab fetch must not leave the tab stuck on its spinner.
+        printINFO("Tab search failed for $tabName: $e");
+        separatedResultContent[tabName] = [];
+        additionalParamNext[tabName] = {
+          'additionalParams': '&ctoken=null&continuation=null',
+        };
+      }
     }
     isSeparatedResultContentFetced.value = true;
   }
 
   Future<void> getContinuationContents() async {
     final tabName = railItems[navigationRailCurrentIndex.value - 1];
-
-    final x =
-        await musicServices.getSearchContinuation(additionalParamNext[tabName]);
-    (separatedResultContent[tabName]).addAll(x[tabName]);
-    additionalParamNext[tabName] = x['params'];
-    separatedResultContent.refresh();
-
-    continuationInProgress = false;
+    final additionalParamsNextTab = additionalParamNext[tabName];
+    if (additionalParamsNextTab == null) {
+      continuationInProgress = false;
+      return;
+    }
+    try {
+      final x =
+          await musicServices.getSearchContinuation(additionalParamsNextTab);
+      final moreItems = x[tabName] ?? [];
+      if (separatedResultContent[tabName] is List) {
+        (separatedResultContent[tabName] as List).addAll(moreItems);
+      } else {
+        separatedResultContent[tabName] = moreItems;
+      }
+      additionalParamNext[tabName] = x['params'];
+      separatedResultContent.refresh();
+    } catch (e) {
+      // A failed continuation must not permanently disable infinite scroll.
+      printINFO("Continuation failed: $e");
+    } finally {
+      continuationInProgress = false;
+    }
   }
 
   void viewAllCallback(String text) {
@@ -93,53 +123,82 @@ class SearchResultScreenController extends GetxController
 
   Future<void> _getInitSearchResult() async {
     isResultContentFetced.value = false;
+    isSearchError.value = false;
     final args = Get.arguments;
-    if (args != null) {
-      queryString.value = args;
-      resultContent.value = await musicServices.search(args);
-      final allKeys = resultContent.keys.where((element) => ([
-            "Songs",
-            "Videos",
-            "Albums",
-            "Featured playlists",
-            "Community playlists",
-            "Artists"
-          ]).contains(element));
-      railItems.value = List<String>.from(allKeys);
-      final len =
-          railItems.where((element) => element.contains("playlists")).length;
-      final calH = 30 + (railItems.length + 1 - len) * 123 + len * 150.0;
-      railitemHeight.value =
-          calH >= railitemHeight.value ? calH : railitemHeight.value;
-
-      //ScrollControlers for list Continuation callback implementarion
-      for (String item in railItems) {
-        scrollControllers[item] = ScrollController();
-      }
-
-      //Case if bottom nav used
-      if (GetPlatform.isDesktop ||
-          Get.find<SettingsScreenController>().isBottomNavBarEnabled.isTrue) {
-        // assiging init val
-        for (var element in railItems) {
-          separatedResultContent[element] = [];
-        }
-
-        //tab controller for v2
-        tabController =
-            TabController(length: railItems.length + 1, vsync: this);
-
-        tabController?.animation?.addListener(() {
-          int indexChange = tabController!.offset.round();
-          int index = tabController!.index + indexChange;
-
-          if (index != navigationRailCurrentIndex.value) {
-            onDestinationSelected(index, ignoreTabCommand: true);
-          }
-        });
-      }
+    if (args == null) {
+      // No query was passed to this screen — nothing to search for.
+      isSearchError.value = true;
       isResultContentFetced.value = true;
+      return;
     }
+    queryString.value = args;
+    try {
+      resultContent.value = await musicServices.search(args);
+    } catch (e) {
+      // A failed request must not leave the screen stuck on the loading
+      // spinner forever — surface it with a retry instead.
+      printINFO("Search failed: $e");
+      isSearchError.value = true;
+      isResultContentFetced.value = true;
+      return;
+    }
+    _disposeTabState();
+    final allKeys = resultContent.keys.where((element) => ([
+          "Songs",
+          "Videos",
+          "Albums",
+          "Featured playlists",
+          "Community playlists",
+          "Artists"
+        ]).contains(element));
+    railItems.value = List<String>.from(allKeys);
+    final len =
+        railItems.where((element) => element.contains("playlists")).length;
+    final calH = 30 + (railItems.length + 1 - len) * 123 + len * 150.0;
+    railitemHeight.value =
+        calH >= railitemHeight.value ? calH : railitemHeight.value;
+
+    //ScrollControlers for list Continuation callback implementarion
+    for (String item in railItems) {
+      scrollControllers[item] = ScrollController();
+    }
+
+    //Case if bottom nav used
+    if (GetPlatform.isDesktop ||
+        Get.find<SettingsScreenController>().isBottomNavBarEnabled.isTrue) {
+      // assiging init val
+      for (var element in railItems) {
+        separatedResultContent[element] = [];
+      }
+
+      //tab controller for v2
+      tabController =
+          TabController(length: railItems.length + 1, vsync: this);
+
+      tabController?.animation?.addListener(() {
+        int indexChange = tabController!.offset.round();
+        int index = tabController!.index + indexChange;
+
+        if (index != navigationRailCurrentIndex.value) {
+          onDestinationSelected(index, ignoreTabCommand: true);
+        }
+      });
+    }
+    isResultContentFetced.value = true;
+  }
+
+  /// Re-runs the initial search after a failure.
+  Future<void> retrySearch() async {
+    await _getInitSearchResult();
+  }
+
+  void _disposeTabState() {
+    tabController?.dispose();
+    tabController = null;
+    for (final controller in scrollControllers.values) {
+      controller.dispose();
+    }
+    scrollControllers.clear();
   }
 
   void onSort(SortType sortType, bool isAscending, String title) {
@@ -165,7 +224,7 @@ class SearchResultScreenController extends GetxController
   @override
   void onClose() {
     for (String item in railItems) {
-      (scrollControllers[item])!.dispose();
+      scrollControllers[item]?.dispose();
     }
     Get.find<HomeScreenController>().whenHomeScreenOnTop();
     tabController?.dispose();

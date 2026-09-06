@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 
 import '/utils/app_link_controller.dart' show ProcessLink;
+import '/utils/helper.dart';
 import '/services/music_service.dart';
 
 class SearchScreenController extends GetxController with ProcessLink {
@@ -39,7 +40,20 @@ class SearchScreenController extends GetxController with ProcessLink {
       return;
     }
     urlPasted.value = false;
-    suggestionList.value = await musicServices.getSearchSuggestion(text);
+    try {
+      final suggestions = await musicServices.getSearchSuggestion(text);
+      // Ignore stale responses if the user has typed more since the request
+      // was sent — otherwise a slow response can overwrite newer suggestions
+      // (or the cleared list) with results for an older query.
+      if (textInputController.text == text) {
+        suggestionList.value = suggestions;
+      }
+    } catch (e) {
+      printINFO("Suggestion fetch failed: $e");
+      if (textInputController.text == text) {
+        suggestionList.value = [];
+      }
+    }
   }
 
   Future<void> suggestionInput(String txt) async {

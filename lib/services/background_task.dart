@@ -40,6 +40,7 @@ Future<Map<String, dynamic>> getStreamInfo(
   dynamic token, {
   String configJson = '{}',
   Map<String, dynamic>? songJson,
+  String forceProviderId = '',
 }) async {
   if (songId.length >= 4 && songId.substring(0, 4) == "MPED") {
     songId = songId.substring(4);
@@ -47,7 +48,9 @@ Future<Map<String, dynamic>> getStreamInfo(
   BackgroundIsolateBinaryMessenger.ensureInitialized(token);
   final config = StreamRouteConfig.fromJsonString(configJson);
   final song = songJson == null ? null : SongQuery.fromJson(songJson);
-  final playerResponse =
-      await StreamRouter.build(config).fetch(songId, song: song);
+  final playerResponse = await StreamRouter.build(
+    config,
+    forceProviderId: forceProviderId.isEmpty ? null : forceProviderId,
+  ).fetch(songId, song: song);
   return playerResponse.hmStreamingData;
 }

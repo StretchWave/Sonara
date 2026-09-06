@@ -679,13 +679,19 @@ class MusicServices extends getx.GetxService {
 
     results = nav(results, ['sectionListRenderer', 'contents']);
 
-    if (results.length == 1 && results[0]['itemSectionRenderer'] != null) {
+    // Guard against unexpected response shapes (bot-check page, degraded
+    // body, etc.) so a malformed response degrades to "no results" instead
+    // of crashing the search screen with a null/type error.
+    if (results is! List || results.isEmpty) {
       return searchResults;
     }
 
     String? type;
 
     for (var res in results) {
+      if (res is! Map<String, dynamic>) {
+        continue;
+      }
       String category;
       dynamic shelf;
       if (res['musicShelfRenderer'] != null) {

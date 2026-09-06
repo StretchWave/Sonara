@@ -286,6 +286,42 @@ class HomeScreenController extends GetxController {
         .put("homeScreenDataTime", DateTime.now().millisecondsSinceEpoch);
   }
 
+  /// Reset the REC refresh cooldown, e.g. when the user manually picks
+  /// "Recommendations" in settings, so it refreshes immediately.
+  void resetRecommendationsCooldown() {
+    _lastRecommendationsRefresh = null;
+  }
+
+  /// Minimum interval between automatic recommendation (REC) refreshes
+  /// triggered by song plays, to avoid hammering the network on every
+  /// single play.
+  static const Duration _recommendationsRefreshCooldown = Duration(minutes: 10);
+
+  DateTime? _lastRecommendationsRefresh;
+
+  /// Keeps the home song selection in sync with the user's usage.
+  ///
+  /// Called whenever a song starts playing:
+  /// - `BOLI` (Based on last interaction): rebuilds the quick picks from
+  ///   the song that was just played.
+  /// - `REC` (Recommendations): recomputes personalised recommendations
+  ///   from the updated play stats, throttled by [_recommendationsRefreshCooldown].
+  void refreshHomeContentOnSongPlay({String? songId}) {
+    final contentType =
+        Hive.box("AppPrefs").get("discoverContentType") ?? "REC";
+    if (contentType == "BOLI") {
+      changeDiscoverContent("BOLI", songId: songId);
+    } else if (contentType == "REC") {
+      final now = DateTime.now();
+      if (_lastRecommendationsRefresh == null ||
+          now.difference(_lastRecommendationsRefresh!) >=
+              _recommendationsRefreshCooldown) {
+        _lastRecommendationsRefresh = now;
+        changeDiscoverContent("REC");
+      }
+    }
+  }
+
   String getContentHlCode() {
     const List<String> unsupportedLangIds = ["ia", "ga", "fj", "eo"];
     final userLangId =

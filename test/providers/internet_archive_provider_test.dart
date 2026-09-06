@@ -139,6 +139,21 @@ void main() {
       expect(result.score, lessThan(500));
     });
 
+    test('rejects a file with the same name but a very different length', () {
+      // A live or cover cut of a studio song differs in length — the gate
+      // must refuse to substitute it for the video the user picked.
+      final result = provider.scoreItem(
+        {
+          'identifier': 'gd1977-05-08.sbd.miller.flac16',
+          'title': 'Grateful Dead Live 1977',
+          'creator': 'Grateful Dead',
+        },
+        const [FlacFile(name: 'Scarlet Begonias.flac', length: '280')], // 4:40 vs 6:40
+        query,
+      );
+      expect(result, isNull);
+    });
+
     test('prefers 24-bit files over 16-bit within the same item', () {
       final result = provider.scoreItem(
         {

@@ -23,6 +23,10 @@ class ResolvedStream {
 
   final DateTime? expiresAt;
 
+  /// Stable id of the provider that produced this stream
+  /// (`qobuz`, `tidal`, `youtube_music`, ...). Filled in by the router.
+  final String providerId;
+
   const ResolvedStream({
     required this.playable,
     this.statusMSG = '',
@@ -32,6 +36,7 @@ class ResolvedStream {
     this.sampleRate,
     this.bitDepth,
     this.expiresAt,
+    this.providerId = '',
   });
 
   factory ResolvedStream.fromStreamProvider(StreamProvider provider) =>
@@ -39,6 +44,20 @@ class ResolvedStream {
         playable: provider.playable,
         statusMSG: provider.statusMSG,
         audioFormats: provider.audioFormats ?? const [],
+        providerId: provider.providerId,
+      );
+
+  /// Copies this stream, stamping [id] as the producing provider.
+  ResolvedStream withProviderId(String id) => ResolvedStream(
+        playable: playable,
+        statusMSG: statusMSG,
+        audioFormats: audioFormats,
+        label: label,
+        mimeType: mimeType,
+        sampleRate: sampleRate,
+        bitDepth: bitDepth,
+        expiresAt: expiresAt,
+        providerId: id,
       );
 
   /// Converts back to the legacy transport model used by the rest of the
@@ -47,5 +66,6 @@ class ResolvedStream {
         playable: playable,
         statusMSG: statusMSG,
         audioFormats: audioFormats,
+        providerId: providerId,
       );
 }

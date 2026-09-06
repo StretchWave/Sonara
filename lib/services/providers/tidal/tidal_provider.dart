@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../../stream_service.dart' show Audio, Codec;
 import '../audio_source_provider.dart';
+import '../matching/isrc.dart';
 import '../matching/search_terms.dart';
 import '../matching/track_candidate.dart';
 import '../matching/track_scorer.dart';
@@ -127,10 +128,23 @@ class TidalProvider extends AudioSourceProvider {
   }
 
   Future<TrackCandidate?> _findBestTrack(SongQuery query) async {
+    // ISRC is the exact recording id — search for it directly first so a
+    // cover/remix with the same title can never be picked.
+    final isrc = normalizeIsrc(query.isrc);
+    if (isrc != null) {
+      try {
+        final items = await _api.searchTracks(isrc);
+        final exact = _pickBest(items, query,
+            requireIsrc: isrc);
+        if (exact != null) return exact;
+      } catch (_) {
+        // ISRC search failed — fall through to term search.
+      }
+    }
     for (final term in buildSearchTerms(query)) {
       final items = await _api.searchTracks(term);
       if (items.isEmpty) continue;
-      final best = _pickBest(items, query);
+      final best = _pickBest(items, query, requireIsrc: isrc);
       if (best != null) return best;
     }
     return null;
@@ -138,12 +152,20 @@ class TidalProvider extends AudioSourceProvider {
 
   TrackCandidate? _pickBest(
     List<Map<String, dynamic>> items,
-    SongQuery query,
-  ) {
+    SongQuery query, {
+    String? requireIsrc,
+  }) {
     final candidates = <TrackCandidate>[];
     for (final item in items) {
       final candidate = _toCandidate(item);
       if (candidate != null) candidates.add(candidate);
+    }
+    if (requireIsrc != null && requireIsrc.isNotEmpty) {
+      // Only accept candidates whose ISRC matches the exact recording.
+      for (final candidate in candidates) {
+        if (normalizeIsrc(candidate.isrc) == requireIsrc) return candidate;
+      }
+      return null;
     }
     return pickBestMatch(candidates, query);
   }

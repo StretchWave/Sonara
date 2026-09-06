@@ -8,8 +8,15 @@ class StreamProvider {
   final bool playable;
   final List<Audio>? audioFormats;
   final String statusMSG;
+
+  /// Stable id of the provider that produced this stream
+  /// (`qobuz`, `tidal`, `youtube_music`, ...). Empty when unknown.
+  final String providerId;
   StreamProvider(
-      {required this.playable, this.audioFormats, this.statusMSG = ""});
+      {required this.playable,
+      this.audioFormats,
+      this.statusMSG = "",
+      this.providerId = ""});
 
   Audio? get highestQualityAudio =>
       audioFormats?.lastWhere((item) => item.itag == 251 || item.itag == 140,
@@ -31,6 +38,7 @@ class StreamProvider {
     return {
       "playable": playable,
       "statusMSG": statusMSG,
+      "providerId": providerId,
       "lowQualityAudio": lowQualityAudio?.toJson(),
       "highQualityAudio": highestQualityAudio?.toJson()
     };

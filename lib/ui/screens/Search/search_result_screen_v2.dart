@@ -62,7 +62,11 @@ class SearchResultScreenBN extends StatelessWidget {
               Expanded(
                 child: Obx(
                   () {
-                    if (searchResScrController.isResultContentFetced.isTrue &&
+                    if (searchResScrController.isSearchError.isTrue) {
+                      return SearchErrorView(
+                          onRetry: searchResScrController.retrySearch);
+                    } else if (searchResScrController
+                            .isResultContentFetced.isTrue &&
                         searchResScrController.railItems.isEmpty) {
                       return Center(
                         child: Column(

@@ -75,18 +75,23 @@ class Downloader extends GetxService {
   /// Queues [song] (or a whole [songList]) for download.
   ///
   /// [format] overrides the global default for this download: "original",
-  /// "mp3", "flac", "opus" or "m4a". Playlists/auto-downloads pass no
-  /// format and use the setting from Settings → Download.
+  /// "mp3", "flac", "opus" or "m4a". [source] pins the stream to one
+  /// provider (e.g. `qobuz`) instead of the first one that answers.
+  /// Playlists/auto-downloads pass neither and use the default cascade.
   Future<void> download(MediaItem? song,
-      {List<MediaItem>? songList, String? format}) async {
+      {List<MediaItem>? songList,
+      String? format,
+      String? source}) async {
     if (!(await checkPermissionNDir())) return;
     if (songList != null) {
       for (final item in songList) {
         _setDownloadFormat(item, format);
+        _setDownloadSource(item, source);
       }
       songQueue.addAll(songList);
     } else {
       _setDownloadFormat(song!, format);
+      _setDownloadSource(song, source);
       songQueue.add(song);
     }
     if (isJobRunning.isFalse) {
@@ -100,6 +105,16 @@ class Downloader extends GetxService {
       song.extras?.remove('downloadFormat');
     } else {
       song.extras?['downloadFormat'] = format;
+    }
+  }
+
+  /// Records a per-song source override on the item (null = use the normal
+  /// provider cascade).
+  void _setDownloadSource(MediaItem song, String? source) {
+    if (source == null || source.isEmpty) {
+      song.extras?.remove('downloadSource');
+    } else {
+      song.extras?['downloadSource'] = source;
     }
   }
 
@@ -178,9 +193,12 @@ class Downloader extends GetxService {
     final globalFormat = settingsScreenController.downloadingFormat.string;
     final requestedFormat = (song.extras?['downloadFormat'] as String?) ??
         (globalFormat.isEmpty ? 'original' : globalFormat);
+    final downloadSource = (song.extras?['downloadSource'] as String?) ?? '';
 
-    final playerResponse = await StreamRouter.build(StreamRouteConfig.fromSettings())
-        .fetch(song.id, song: SongQuery.fromMediaItem(song));
+    final playerResponse = await StreamRouter.build(
+      StreamRouteConfig.fromSettings(),
+      forceProviderId: downloadSource.isEmpty ? null : downloadSource,
+    ).fetch(song.id, song: SongQuery.fromMediaItem(song));
 
     if (!playerResponse.playable) {
       ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(

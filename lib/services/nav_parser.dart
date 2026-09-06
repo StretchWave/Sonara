@@ -708,10 +708,16 @@ List<dynamic> parseSearchResults(List<dynamic> results,
     List<String> searchResultTypes, String? resultType, String category) {
   return results
       .map((result) {
-        return parseSearchResult(result['musicResponsiveListItemRenderer'],
-            searchResultTypes, resultType, category);
+        final renderer = result['musicResponsiveListItemRenderer'];
+        if (renderer == null) {
+          // Rows without a parseable item ("no results" message, continuation
+          // placeholders, etc.) are skipped instead of crashing the parser.
+          return null;
+        }
+        return parseSearchResult(renderer, searchResultTypes, resultType,
+            category);
       })
-      .whereType<dynamic>()
+      .where((item) => item != null)
       .toList();
 }
 

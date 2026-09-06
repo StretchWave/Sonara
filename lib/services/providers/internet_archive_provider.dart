@@ -232,8 +232,17 @@ class InternetArchiveProvider extends AudioSourceProvider {
         continue;
       }
 
-      // Duration plausibility.
+      // Same-recording gate: only substitute a FLAC file for the user's
+      // chosen video when it is essentially the same recording. A live or
+      // cover cut almost always differs in length from the studio version.
       final fileDurationSec = int.tryParse(file.length ?? '');
+      if (wantedDurationSec != null &&
+          fileDurationSec != null &&
+          (wantedDurationSec - fileDurationSec).abs() > 10) {
+        continue;
+      }
+
+      // Duration plausibility (scoring bonus once the gate above passed).
       if (wantedDurationSec != null && fileDurationSec != null) {
         final diff = (wantedDurationSec - fileDurationSec).abs();
         if (diff <= 3) {
@@ -260,11 +269,23 @@ class InternetArchiveProvider extends AudioSourceProvider {
     }
     if (bestFile == null) {
       // Fallback: the item itself carries the requested title (single-work
-      // releases, album-title queries). Play its first file.
+      // releases, album-title queries). Pick a file that also passes the
+      // same-recording duration gate — never fall back to an arbitrary
+      // first file, which can be a different recording.
       final normalizedItem = _normalize(itemTitle);
       if (wantedTitle.length >= 4 && normalizedItem.contains(wantedTitle)) {
-        bestFile = files.first;
-        bestScore = 300;
+        for (final file in files) {
+          final fileDurationSec = int.tryParse(file.length ?? '');
+          if (wantedDurationSec != null &&
+              fileDurationSec != null &&
+              (wantedDurationSec - fileDurationSec).abs() > 10) {
+            continue;
+          }
+          bestFile = file;
+          bestScore = 300;
+          break;
+        }
+        if (bestFile == null) return null;
       } else {
         return null;
       }

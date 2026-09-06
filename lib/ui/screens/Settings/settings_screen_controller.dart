@@ -438,7 +438,9 @@ class SettingsScreenController extends GetxController {
   void onContentChange(dynamic value) {
     setBox.put('discoverContentType', value);
     discoverContentType.value = value;
-    Get.find<HomeScreenController>().changeDiscoverContent(value);
+    final homeScreenController = Get.find<HomeScreenController>();
+    if (value == "REC") homeScreenController.resetRecommendationsCooldown();
+    homeScreenController.changeDiscoverContent(value);
   }
 
   void toggleCachingSongsValue(bool value) {

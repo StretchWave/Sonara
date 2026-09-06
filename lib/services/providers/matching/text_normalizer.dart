@@ -45,10 +45,13 @@ int wordsOverlap(String first, String second) {
   return firstTokens.intersection(secondTokens).length;
 }
 
-/// Version descriptors that indicate a different recording than the
-/// original (remix, live cut, edit, ...).
-const List<String> versionTokens = [
+/// Single-word version descriptors that indicate a different recording
+/// than the original (remix, cover, live cut, ...). Matched as whole words
+/// so ordinary words inside titles ("Undercover", "Deliverance") are not
+/// false positives.
+const List<String> versionWords = [
   'remix',
+  'remixes',
   'live',
   'edit',
   'acoustic',
@@ -56,15 +59,70 @@ const List<String> versionTokens = [
   'karaoke',
   'remaster',
   'remastered',
-  'sped up',
-  'slowed',
+  'cover',
+  'covers',
+  'mix',
+  'mixed',
+  'mixes',
+  'mashup',
+  'medley',
+  'tribute',
+  'remake',
+  'reverb',
+  'reverbed',
+  'nightcore',
+  'chopped',
+  'screwed',
+  'orchestral',
+  'acapella',
+  'a cappella',
 ];
+
+/// Multi-word version descriptors.
+const List<String> versionPhrases = [
+  'sped up',
+  'bass boosted',
+  'slowed reverb',
+  'slowed and reverb',
+  'chopped and screwed',
+];
+
+/// Words that mean "this is the original release", which neutralize a
+/// version descriptor — e.g. "Original Mix" is the standard version of an
+/// electronic track, not a remix.
+const List<String> originalMarkers = ['original'];
+
+/// Whether [text] carries any version descriptor (as a whole word/phrase).
+bool containsVersionDescriptor(String text) {
+  final lower = text.toLowerCase();
+  for (final phrase in versionPhrases) {
+    if (lower.contains(phrase)) return true;
+  }
+  for (final word in versionWords) {
+    if (_containsWholeWord(lower, word)) return true;
+  }
+  return false;
+}
+
+/// Whether [text] explicitly marks itself as the original recording.
+bool containsOriginalMarker(String text) {
+  final lower = text.toLowerCase();
+  return originalMarkers.any((word) => _containsWholeWord(lower, word));
+}
 
 /// Returns true when [candidate] carries a version descriptor that the
 /// [wanted] query does not — a strong signal these are different
 /// recordings and should not be matched.
 bool hasVersionMismatch(String wanted, String candidate) {
-  final queryHasVersion = versionTokens.any(wanted.contains);
-  final candidateHasVersion = versionTokens.any(candidate.contains);
-  return candidateHasVersion && !queryHasVersion;
+  final queryHasVersion = containsVersionDescriptor(wanted);
+  final candidateHasVersion = containsVersionDescriptor(candidate);
+  if (!candidateHasVersion || queryHasVersion) return false;
+  // A candidate that explicitly labels itself the original ("Original
+  // Mix", "Original Version") is exactly what we want, not a mismatch.
+  return !containsOriginalMarker(candidate);
+}
+
+bool _containsWholeWord(String text, String word) {
+  final escaped = RegExp.escape(word);
+  return RegExp('(^|[^a-z0-9])$escaped([^a-z0-9]|\$)').hasMatch(text);
 }
