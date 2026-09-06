@@ -215,11 +215,18 @@ class Body extends StatelessWidget {
                                     homeScreenController)
                               ]
                             : [const HomeShimmer()];
-                        return ListView.builder(
-                          padding:
-                              EdgeInsets.only(bottom: 200, top: topPadding),
-                          itemCount: items.length,
-                          itemBuilder: (context, index) => items[index],
+                        return RefreshIndicator(
+                          onRefresh: () async {
+                            homeScreenController.resetRecommendationsCooldown();
+                            await homeScreenController.loadContentFromNetwork();
+                          },
+                          child: ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding:
+                                EdgeInsets.only(bottom: 200, top: topPadding),
+                            itemCount: items.length,
+                            itemBuilder: (context, index) => items[index],
+                          ),
                         );
                       }),
               ),
@@ -232,9 +239,24 @@ class Body extends StatelessWidget {
                     width: constraints.maxWidth > 800
                         ? 800
                         : constraints.maxWidth - 40,
-                    child: const Padding(
-                        padding: EdgeInsets.only(top: 15.0),
-                        child: DesktopSearchBar()),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 15.0),
+                      child: Row(
+                        children: [
+                          const Expanded(child: DesktopSearchBar()),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            tooltip: "Refresh Home",
+                            icon: const Icon(Icons.refresh),
+                            onPressed: () {
+                              homeScreenController
+                                  .resetRecommendationsCooldown();
+                              homeScreenController.loadContentFromNetwork();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }),
               )

@@ -62,25 +62,44 @@ class RecommendationService extends GetxService {
   }
 
   /// Fetch content related to [song] from YouTube Music.
+  /// Fetch content related to [song] from YouTube Music.
   ///
-  /// Returns a flat list of `MediaItem` from all related sections, or an
-  /// empty list if the API call fails or returns no usable data.
+  /// Uses YouTube Music's song radio (watch playlist) which returns true musical
+  /// peers (genre, style, artists), and supplements with related browse sections.
   Future<List<MediaItem>> _fetchRelated(MediaItem song) async {
     try {
-      final hlCode =
-          Get.find<SettingsScreenController>().currentAppLanguageCode.value;
-      final related =
-          await _musicServices.getContentRelatedToSong(song.id, hlCode);
-      if (related == null || related is! List) return [];
-
       final songs = <MediaItem>[];
-      for (final section in related) {
-        if (section is Map && section['contents'] is List) {
-          for (final item in section['contents']) {
+
+      // 1. Fetch song radio (watch playlist) — YouTube Music's direct musical peers
+      try {
+        final watch = await _musicServices.getWatchPlaylist(
+            videoId: song.id, limit: 20, radio: true);
+        if (watch['tracks'] != null && watch['tracks'] is List) {
+          for (final item in watch['tracks']) {
             if (item is MediaItem) songs.add(item);
           }
         }
+      } catch (_) {}
+
+      // 2. Supplement with related browse sections if available
+      if (songs.length < 5) {
+        try {
+          final hlCode =
+              Get.find<SettingsScreenController>().currentAppLanguageCode.value;
+          final related =
+              await _musicServices.getContentRelatedToSong(song.id, hlCode);
+          if (related != null && related is List) {
+            for (final section in related) {
+              if (section is Map && section['contents'] is List) {
+                for (final item in section['contents']) {
+                  if (item is MediaItem) songs.add(item);
+                }
+              }
+            }
+          }
+        } catch (_) {}
       }
+
       return songs;
     } catch (_) {
       return [];

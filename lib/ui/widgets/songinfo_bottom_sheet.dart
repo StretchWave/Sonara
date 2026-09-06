@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/downloader.dart';
 import '../screens/Playlist/playlist_screen_controller.dart';
 import '../screens/Settings/settings_screen_controller.dart';
+import '../screens/Home/home_screen_controller.dart';
 import '../../services/supabase/playlist_sync_service.dart';
 import '/utils/helper.dart';
 import '/services/piped_service.dart';
@@ -398,6 +399,11 @@ class SongInfoController extends GetxController
       if (Get.isRegistered<PlaylistSyncService>()) {
         Get.find<PlaylistSyncService>()
             .syncFavoriteSong(song, isAdded: isCurrentSongFav.value);
+      }
+    } catch (_) {}
+    try {
+      if (Get.isRegistered<HomeScreenController>()) {
+        Get.find<HomeScreenController>().onFavoritesChanged();
       }
     } catch (_) {}
   }

@@ -273,7 +273,11 @@ class SettingsScreen extends StatelessWidget {
                                               .discoverContentType.value ==
                                           "TR"
                                       ? "trending".tr
-                                      : "basedOnLast".tr,
+                                      : settingsController
+                                                  .discoverContentType.value ==
+                                              "REC"
+                                          ? "basedOnLikes".tr
+                                          : "basedOnLast".tr,
                           style: Theme.of(context).textTheme.bodyMedium)),
                       onTap: () => showDialog(
                         context: context,

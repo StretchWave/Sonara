@@ -710,6 +710,11 @@ class PlayerController extends GetxController
             .syncFavoriteSong(currMediaItem, isAdded: isCurrentSongFav.value);
       }
     } catch (_) {}
+    try {
+      if (Get.isRegistered<HomeScreenController>()) {
+        Get.find<HomeScreenController>().onFavoritesChanged();
+      }
+    } catch (_) {}
   }
 
   // ignore: prefer_typing_uninitialized_variables

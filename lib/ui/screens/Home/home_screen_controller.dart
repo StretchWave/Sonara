@@ -88,7 +88,7 @@ class HomeScreenController extends GetxController {
 
   Future<void> loadContentFromNetwork({bool silent = false}) async {
     final box = Hive.box("AppPrefs");
-    String contentType = box.get("discoverContentType") ?? "QP";
+    String contentType = box.get("discoverContentType") ?? "REC";
 
     networkError.value = false;
     try {
@@ -319,6 +319,18 @@ class HomeScreenController extends GetxController {
         _lastRecommendationsRefresh = now;
         changeDiscoverContent("REC");
       }
+    }
+  }
+
+  /// Called whenever a song is liked/unliked or when cloud favorites are synced.
+  /// If the discover content type is REC (Based on Likes) or still on initial fallback,
+  /// this immediately updates the recommendations so the home screen reflects user likes.
+  void onFavoritesChanged() {
+    final contentType =
+        Hive.box("AppPrefs").get("discoverContentType") ?? "REC";
+    if (contentType == "REC") {
+      resetRecommendationsCooldown();
+      changeDiscoverContent("REC");
     }
   }
 

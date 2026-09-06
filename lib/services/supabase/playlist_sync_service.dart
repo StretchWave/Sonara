@@ -8,6 +8,7 @@ import '../../models/media_Item_builder.dart';
 import '../../models/playlist.dart';
 import '../../ui/screens/Library/library_controller.dart';
 import '../../ui/screens/Playlist/playlist_screen_controller.dart';
+import '../../ui/screens/Home/home_screen_controller.dart';
 import '../../utils/helper.dart';
 import 'supabase_service.dart';
 
@@ -464,6 +465,13 @@ class PlaylistSyncService extends GetxService {
         final plCtrl = Get.find<PlaylistScreenController>(
             tag: const Key("LIBFAV").hashCode.toString());
         plCtrl.fetchSongsfromDatabase("LIBFAV");
+      } catch (_) {}
+
+      // Refresh home screen recommendations
+      try {
+        if (Get.isRegistered<HomeScreenController>()) {
+          Get.find<HomeScreenController>().onFavoritesChanged();
+        }
       } catch (_) {}
     } catch (e) {
       printERROR("PlaylistSyncService._syncFavorites error: $e");
