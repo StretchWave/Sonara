@@ -71,6 +71,8 @@ class MediaItemBuilder {
         ],
         'url': mediaItem.extras!['url'],
         'trackDetails': mediaItem.extras?['trackDetails'],
-        'year': mediaItem.extras?['year']
+        'year': mediaItem.extras?['year'],
+        // FIX: Preserve videoType — was silently dropped before.
+        'videoType': mediaItem.extras?['videoType'],
       };
 }

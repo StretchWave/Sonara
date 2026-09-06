@@ -110,6 +110,9 @@ class StreamRouteConfig {
 
   /// Reads the current configuration from the AppPrefs Hive box.
   static StreamRouteConfig fromSettings() {
+    if (!Hive.isBoxOpen('AppPrefs')) {
+      return const StreamRouteConfig();
+    }
     final prefs = Hive.box('AppPrefs');
     final instancesRaw =
         (prefs.get('qobuzInstances', defaultValue: '') as String?) ?? '';
@@ -280,5 +283,90 @@ class StreamRouteConfig {
               .toList() ??
           defaultProviderOrder,
     );
+  }
+
+  /// Schema version for cache/config migration.
+  static const int schemaVersion = 2;
+
+  /// Returns a copy with the given fields replaced, avoiding the fragile
+  /// manual copy of 20+ fields that `playbackConfig()` used to do.
+  StreamRouteConfig copyWith({
+    bool? qobuzEnabled,
+    List<String>? qobuzInstances,
+    String? qobuzCountry,
+    int? qobuzQuality,
+    bool? tidalEnabled,
+    List<String>? tidalEndpoints,
+    String? tidalQuality,
+    bool? soundcloudEnabled,
+    bool? internetArchiveEnabled,
+    bool? deezerEnabled,
+    List<String>? deezerEndpoints,
+    String? deezerQuality,
+    bool? appleEnabled,
+    List<String>? appleEndpoints,
+    bool? amazonEnabled,
+    List<String>? amazonEndpoints,
+    String? amazonQuality,
+    bool? instagramEnabled,
+    String? instagramCookie,
+    Map<String, String>? matchOverrides,
+    String? visitorId,
+    List<String>? providerOrder,
+  }) =>
+      StreamRouteConfig(
+        qobuzEnabled: qobuzEnabled ?? this.qobuzEnabled,
+        qobuzInstances: qobuzInstances ?? this.qobuzInstances,
+        qobuzCountry: qobuzCountry ?? this.qobuzCountry,
+        qobuzQuality: qobuzQuality ?? this.qobuzQuality,
+        tidalEnabled: tidalEnabled ?? this.tidalEnabled,
+        tidalEndpoints: tidalEndpoints ?? this.tidalEndpoints,
+        tidalQuality: tidalQuality ?? this.tidalQuality,
+        soundcloudEnabled: soundcloudEnabled ?? this.soundcloudEnabled,
+        internetArchiveEnabled:
+            internetArchiveEnabled ?? this.internetArchiveEnabled,
+        deezerEnabled: deezerEnabled ?? this.deezerEnabled,
+        deezerEndpoints: deezerEndpoints ?? this.deezerEndpoints,
+        deezerQuality: deezerQuality ?? this.deezerQuality,
+        appleEnabled: appleEnabled ?? this.appleEnabled,
+        appleEndpoints: appleEndpoints ?? this.appleEndpoints,
+        amazonEnabled: amazonEnabled ?? this.amazonEnabled,
+        amazonEndpoints: amazonEndpoints ?? this.amazonEndpoints,
+        amazonQuality: amazonQuality ?? this.amazonQuality,
+        instagramEnabled: instagramEnabled ?? this.instagramEnabled,
+        instagramCookie: instagramCookie ?? this.instagramCookie,
+        matchOverrides: matchOverrides ?? this.matchOverrides,
+        visitorId: visitorId ?? this.visitorId,
+        providerOrder: providerOrder ?? this.providerOrder,
+      );
+
+  /// Validates this configuration for common issues.
+  ///
+  /// Returns a list of human-readable warnings (empty = valid).
+  List<String> validate() {
+    final warnings = <String>[];
+    if (qobuzEnabled && qobuzInstances.isEmpty) {
+      warnings.add('Qobuz is enabled but no resolver instances configured');
+    }
+    if (tidalEnabled && tidalEndpoints.isEmpty) {
+      warnings.add('Tidal is enabled but no resolver endpoints configured');
+    }
+    if (instagramEnabled && instagramCookie.isEmpty) {
+      warnings.add('Instagram is enabled but no session cookie configured');
+    }
+    // Check for unknown providers in order.
+    for (final id in providerOrder) {
+      if (!defaultProviderOrder.contains(id)) {
+        warnings.add('Unknown provider "$id" in provider order');
+      }
+    }
+    // Check for duplicates.
+    final seen = <String>{};
+    for (final id in providerOrder) {
+      if (!seen.add(id)) {
+        warnings.add('Duplicate provider "$id" in provider order');
+      }
+    }
+    return warnings;
   }
 }

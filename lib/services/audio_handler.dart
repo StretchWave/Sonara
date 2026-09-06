@@ -24,13 +24,15 @@ import '/ui/player/player_controller.dart';
 import '../ui/screens/Home/home_screen_controller.dart';
 import '/services/background_task.dart';
 import '/services/duration_match.dart';
+import '/services/providers/cache/stream_cache.dart';
+import '/services/providers/matching/isrc.dart';
 import '/services/providers/matching/isrc_resolver.dart';
+import '/services/providers/playback_coordinator.dart';
 import '/services/permission_service.dart';
 import '/services/providers/song_query.dart';
 import '/services/providers/stream_route_config.dart';
 import '../utils/helper.dart';
 import '/models/media_Item_builder.dart';
-import '/services/utils.dart';
 import '../ui/screens/Settings/settings_screen_controller.dart';
 import '../ui/screens/Library/library_controller.dart';
 // ignore: unused_import, implementation_imports, depend_on_referenced_packages
@@ -318,6 +320,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     return requested;
   }
 
+  /// Playback coordinator for cancellation and orchestration.
+  final PlaybackCoordinator _playbackCoordinator = PlaybackCoordinator();
+
   /// ISRC resolver for playback matching (MetroFuse approach).
   final IsrcResolver _isrcResolver = IsrcResolver();
 
@@ -331,6 +336,11 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     String forceProviderId,
   ) async {
     if (song == null) return null;
+    // If the query already carries a valid ISRC, reuse it immediately
+    if (song.isrc != null && song.isrc!.isNotEmpty) {
+      final normalized = normalizeIsrc(song.isrc);
+      if (normalized != null) return normalized;
+    }
     // Covers/non-official videos are pinned to YouTube — no catalog match,
     // so an ISRC would be unused. Skip the extra catalog lookup.
     if (forceProviderId == 'youtube_music') return null;
@@ -363,30 +373,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     ];
     if (!reordered.contains('youtube_music')) reordered.add('youtube_music');
     reordered.addAll(const ['soundcloud', 'internet_archive']);
-    return StreamRouteConfig(
-      qobuzEnabled: config.qobuzEnabled,
-      qobuzInstances: config.qobuzInstances,
-      qobuzCountry: config.qobuzCountry,
-      qobuzQuality: config.qobuzQuality,
-      tidalEnabled: config.tidalEnabled,
-      tidalEndpoints: config.tidalEndpoints,
-      tidalQuality: config.tidalQuality,
-      soundcloudEnabled: config.soundcloudEnabled,
-      internetArchiveEnabled: config.internetArchiveEnabled,
-      deezerEnabled: config.deezerEnabled,
-      deezerEndpoints: config.deezerEndpoints,
-      deezerQuality: config.deezerQuality,
-      appleEnabled: config.appleEnabled,
-      appleEndpoints: config.appleEndpoints,
-      amazonEnabled: config.amazonEnabled,
-      amazonEndpoints: config.amazonEndpoints,
-      amazonQuality: config.amazonQuality,
-      instagramEnabled: config.instagramEnabled,
-      instagramCookie: config.instagramCookie,
-      matchOverrides: config.matchOverrides,
-      visitorId: config.visitorId,
-      providerOrder: reordered,
-    );
+    return config.copyWith(providerOrder: reordered);
   }
 
   /// Guards the fallback re-resolve so a single mismatch only ever triggers
@@ -655,6 +642,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         break;
 
       case 'playByIndex':
+        final requestId = _playbackCoordinator.newRequest();
         final songIndex = extras!['index'];
         currentIndex = songIndex;
         final isNewUrlReq = extras['newUrl'] ?? false;
@@ -675,7 +663,8 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
         mediaItem.add(currentSong);
         final streamInfo = await futureStreamInfo;
-        if (songIndex != currentIndex) {
+        if (!_playbackCoordinator.isActive(requestId) ||
+            songIndex != currentIndex) {
           return;
         } else if (!streamInfo.playable) {
           currentSongUrl = null;
@@ -696,6 +685,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           currentSong.extras!['streamLabel'] = resolvedAudio!.label;
         }
         currentSong.extras!['streamSource'] = streamInfo.providerId;
+        mediaItem.add(currentSong);
         playbackState
             .add(playbackState.value.copyWith(queueIndex: currentIndex));
         await _playList.add(_createAudioSource(currentSong));
@@ -1078,19 +1068,18 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
       return checkNGetUrl(songId, offlineReplacementUrl: true);
     } else {
       //check if song stream url is cached and allocate url accordingly
-      final songsUrlCacheBox = Hive.box("SongsUrlCache");
+      final streamCache = StreamCache(box: Hive.box("SongsUrlCache"));
       final qualityIndex = Hive.box('AppPrefs').get('streamingQuality') ?? 1;
       HMStreamingData? streamInfo;
-      if (songsUrlCacheBox.containsKey(songId) && !generateNewUrl) {
-        final streamInfoJson = songsUrlCacheBox.get(songId);
-        if (streamInfoJson is Map &&
-            streamInfoJson['playable'] == true &&
-            streamInfoJson['lowQualityAudio'] is Map &&
-            !isExpired(url: (streamInfoJson['lowQualityAudio']['url']))) {
+      if (!generateNewUrl) {
+        final streamInfoJson = streamCache.get(
+          mediaId: songId,
+          providerId: forceProviderId,
+          qualityIndex: qualityIndex as int?,
+        );
+        if (streamInfoJson != null && streamInfoJson['playable'] == true) {
           printINFO("Got cached Url ($songId)");
           streamInfo = HMStreamingData.fromJson(streamInfoJson);
-        } else {
-          songsUrlCacheBox.delete(songId);
         }
       }
 
@@ -1117,7 +1106,16 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
             songJson: songJson,
             forceProviderId: forceProviderId));
         streamInfo = HMStreamingData.fromJson(streamInfoJson);
-        if (streamInfo.playable) songsUrlCacheBox.put(songId, streamInfoJson);
+        if (streamInfo.playable) {
+          streamCache.put(
+            mediaId: songId,
+            data: streamInfoJson,
+            providerId: streamInfo.providerId.isNotEmpty
+                ? streamInfo.providerId
+                : (forceProviderId.isNotEmpty ? forceProviderId : 'youtube_music'),
+            qualityIndex: qualityIndex as int?,
+          );
+        }
       }
 
       streamInfo.setQualityIndex(qualityIndex as int);

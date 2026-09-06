@@ -1,20 +1,8 @@
-/// Resolves a *trusted* ISRC for a track from a public catalog, so stream
-/// providers can match the **exact recording** instead of fuzzy title/artist
-/// scoring.
-///
-/// Ported from MetroFuse's `IsrcResolver`: a cover, remix or slowed/reverb
-/// upload has a different ISRC than the original, so ISRC-keyed matching
-/// excludes wrong versions by construction.  Resolution order:
-///
-///  1. A caller-supplied candidate ISRC (local tag / cached metadata) —
-///     normalized + validated shape only, no network.
-///  2. Deezer's public catalog, searched by song + artist; the best-scoring
-///     result (via the shared match scorer, so a cover/remix is rejected)
-///     supplies the ISRC.
-///
-/// Results are cached in-memory keyed by (song, artist, duration) so repeat
-/// plays never re-hit the network.
+/// Resolves an ISRC for a track from metadata or a public catalog (Deezer),
+/// tracking resolution provenance and enforcing timeouts.
 library;
+
+import 'dart:async';
 
 import '../deezer/deezer_api.dart';
 import '../song_query.dart';
@@ -22,10 +10,75 @@ import 'isrc.dart';
 import 'track_candidate.dart';
 import 'track_scorer.dart';
 
+/// Provenance of an ISRC resolution.
+enum IsrcProvenance {
+  /// Provided directly by caller or track metadata (e.g. tags).
+  provided,
+
+  /// Resolved via public catalog (Deezer) search and verified by matching engine.
+  catalogSearch,
+
+  /// Retrieved from memory cache.
+  cached,
+
+  /// No ISRC could be established.
+  none,
+}
+
+/// Detailed result of an ISRC resolution attempt.
+class IsrcResolutionResult {
+  final String? isrc;
+  final IsrcProvenance provenance;
+  final DateTime resolvedAt;
+  final String? note;
+
+  const IsrcResolutionResult({
+    this.isrc,
+    required this.provenance,
+    required this.resolvedAt,
+    this.note,
+  });
+
+  bool get isFound => isrc != null && isrc!.isNotEmpty;
+
+  factory IsrcResolutionResult.none([String? note]) => IsrcResolutionResult(
+        isrc: null,
+        provenance: IsrcProvenance.none,
+        resolvedAt: DateTime.now(),
+        note: note,
+      );
+
+  factory IsrcResolutionResult.provided(String isrc) => IsrcResolutionResult(
+        isrc: isrc,
+        provenance: IsrcProvenance.provided,
+        resolvedAt: DateTime.now(),
+        note: 'Provided in source metadata',
+      );
+
+  factory IsrcResolutionResult.cached(String isrc) => IsrcResolutionResult(
+        isrc: isrc,
+        provenance: IsrcProvenance.cached,
+        resolvedAt: DateTime.now(),
+        note: 'Loaded from cache',
+      );
+
+  factory IsrcResolutionResult.catalog(String isrc) => IsrcResolutionResult(
+        isrc: isrc,
+        provenance: IsrcProvenance.catalogSearch,
+        resolvedAt: DateTime.now(),
+        note: 'Resolved via Deezer catalog search',
+      );
+}
+
 class IsrcResolver {
-  IsrcResolver({DeezerApi? deezerApi}) : _deezer = deezerApi ?? DeezerApi();
+  IsrcResolver({
+    DeezerApi? deezerApi,
+    Duration defaultTimeout = const Duration(seconds: 5),
+  })  : _deezer = deezerApi ?? DeezerApi(),
+        _timeout = defaultTimeout;
 
   final DeezerApi _deezer;
+  final Duration _timeout;
 
   /// Cache of resolved ISRCs keyed by song/artist/duration. An empty string
   /// means "resolution attempted and failed" (distinct from absent).
@@ -42,19 +95,68 @@ class IsrcResolver {
     required String artist,
     int? durationMs,
   }) async {
+    final result = await resolveWithProvenance(
+      candidateIsrc: candidateIsrc,
+      song: song,
+      artist: artist,
+      durationMs: durationMs,
+    );
+    return result.isrc;
+  }
+
+  /// Resolves an ISRC with provenance details.
+  Future<IsrcResolutionResult> resolveWithProvenance({
+    String? candidateIsrc,
+    required String song,
+    required String artist,
+    int? durationMs,
+  }) async {
+    // 1. Caller-supplied ISRC — validate format first, no network needed
     final validated = normalizeIsrc(candidateIsrc);
-    if (validated != null) return validated;
+    if (validated != null) {
+      return IsrcResolutionResult.provided(validated);
+    }
 
-    if (song.trim().isEmpty || artist.trim().isEmpty) return null;
+    if (song.trim().isEmpty || artist.trim().isEmpty) {
+      return IsrcResolutionResult.none('Song title or artist is empty');
+    }
 
+    // 2. Cache lookup
     final key = '${song.trim().toLowerCase()}::${artist.trim().toLowerCase()}'
         '::$durationMs';
     final cached = _cache[key];
-    if (cached != null) return cached.isEmpty ? null : cached;
+    if (cached != null) {
+      if (cached.isEmpty) {
+        return IsrcResolutionResult.none('Negative cache hit');
+      }
+      return IsrcResolutionResult.cached(cached);
+    }
 
-    final resolved = await _resolveViaDeezer(song, artist, durationMs);
-    _cache[key] = resolved ?? _negative;
-    return resolved;
+    // 3. Network lookup via Deezer catalog with timeout
+    try {
+      final resolved = await _resolveViaDeezer(song, artist, durationMs)
+          .timeout(_timeout);
+      _cache[key] = resolved ?? _negative;
+      if (resolved != null) {
+        return IsrcResolutionResult.catalog(resolved);
+      }
+      return IsrcResolutionResult.none('No matching catalog track with valid ISRC');
+    } on TimeoutException {
+      return IsrcResolutionResult.none('ISRC resolution timed out after ${_timeout.inSeconds}s');
+    } catch (e) {
+      return IsrcResolutionResult.none('ISRC resolution error: $e');
+    }
+  }
+
+  /// Resolves ISRC for a [SongQuery]. If the query already has an ISRC,
+  /// uses it directly without network call.
+  Future<String?> resolveForQuery(SongQuery query) {
+    return resolve(
+      candidateIsrc: query.isrc,
+      song: query.title,
+      artist: query.artists.isNotEmpty ? query.artists.first : '',
+      durationMs: query.durationMs,
+    );
   }
 
   /// Searches Deezer's public catalog and returns the ISRC of the

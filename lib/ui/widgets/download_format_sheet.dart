@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -113,31 +114,50 @@ class _FlacSourceSheet extends StatefulWidget {
 }
 
 class _FlacSourceSheetState extends State<_FlacSourceSheet> {
-  late final Future<List<_FlacSource>> _sourcesFuture;
+  final List<_FlacSource> _sources = [];
+  bool _isLoading = true;
+  StreamSubscription<ProviderStreamResult>? _subscription;
 
   @override
   void initState() {
     super.initState();
-    _sourcesFuture = _loadSources();
+    _startLoadingSources();
   }
 
-  Future<List<_FlacSource>> _loadSources() async {
-    final results = await StreamRouter.build(StreamRouteConfig.fromSettings())
-        .fetchAll(widget.song.id, song: SongQuery.fromMediaItem(widget.song));
-    final sources = <_FlacSource>[];
-    for (final result in results) {
-      final flac = result.stream.audioFormats
-          .where((a) => a.audioCodec == Codec.flac)
-          .toList();
-      if (flac.isEmpty) continue;
-      sources.add(_FlacSource(
-        providerId: result.providerId,
-        label: flac.first.label,
-        durationMs: flac.first.duration,
-        sizeBytes: flac.first.size,
-      ));
-    }
-    return sources;
+  void _startLoadingSources() {
+    final stream = StreamRouter.build(StreamRouteConfig.fromSettings())
+        .fetchAllProgressive(widget.song.id,
+            song: SongQuery.fromMediaItem(widget.song));
+
+    _subscription = stream.listen(
+      (result) {
+        final flac = result.stream.audioFormats
+            .where((a) => a.audioCodec == Codec.flac)
+            .toList();
+        if (flac.isNotEmpty && mounted) {
+          setState(() {
+            _sources.add(_FlacSource(
+              providerId: result.providerId,
+              label: flac.first.label,
+              durationMs: flac.first.duration,
+              sizeBytes: flac.first.size,
+            ));
+          });
+        }
+      },
+      onDone: () {
+        if (mounted) setState(() => _isLoading = false);
+      },
+      onError: (_) {
+        if (mounted) setState(() => _isLoading = false);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   @override
@@ -150,82 +170,86 @@ class _FlacSourceSheetState extends State<_FlacSourceSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-            child: Text(
-              "FLAC sources",
-              style: theme.textTheme.titleMedium,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "FLAC sources",
+                  style: theme.textTheme.titleMedium,
+                ),
+                if (_isLoading && _sources.isNotEmpty)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
             ),
           ),
-          FutureBuilder<List<_FlacSource>>(
-            future: _sourcesFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(
-                    child: SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(strokeWidth: 3),
-                    ),
-                  ),
-                );
-              }
-              final sources = snapshot.data ?? const <_FlacSource>[];
-              if (sources.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'No source returned a FLAC stream for this song.',
-                        style: theme.textTheme.bodySmall!.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.of(context).pop(''),
-                          child: const Text('Download best available'),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return Column(
+          if (_isLoading && _sources.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+              ),
+            )
+          else if (_sources.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final source in sources)
-                    ListTile(
-                      dense: true,
-                      leading: Icon(Icons.hd,
-                          color: theme.colorScheme.onSurfaceVariant),
-                      title: Text(_sourceName(source.providerId)),
-                      subtitle: Text(
-                        _sourceDetails(source),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      onTap: () =>
-                          Navigator.of(context).pop(source.providerId),
+                  Text(
+                    'No source returned a FLAC stream for this song.',
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-                    child: Text(
-                      'Pick a source to download its FLAC copy. If ffmpeg '
-                      'is not installed, the song is saved in its original '
-                      'format instead.',
-                      style: theme.textTheme.bodySmall!.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(''),
+                      child: const Text('Download best available'),
                     ),
                   ),
                 ],
-              );
-            },
-          ),
+              ),
+            )
+          else
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final source in _sources)
+                  ListTile(
+                    dense: true,
+                    leading: Icon(Icons.hd,
+                        color: theme.colorScheme.onSurfaceVariant),
+                    title: Text(_sourceName(source.providerId)),
+                    subtitle: Text(
+                      _sourceDetails(source),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    onTap: () =>
+                        Navigator.of(context).pop(source.providerId),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                  child: Text(
+                    'Pick a source to download its FLAC copy. If ffmpeg '
+                    'is not installed, the song is saved in its original '
+                    'format instead.',
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );

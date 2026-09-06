@@ -16,69 +16,78 @@ class BackgroudImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GetX<PlayerController>(
-      builder: (playerController) => SizedBox.expand(
-        /// if song is null then return empty container
-        child: playerController.currentSong.value != null
+      builder: (playerController) {
+        final song = playerController.currentSong.value;
+        if (song == null) {
+          return const SizedBox.expand();
+        }
 
-            /// if song is local then return image from local file
-            ? (playerController.currentSong.value!.extras!['url'] ?? '')
-                    .contains('file')
-                ? Builder(builder: (context) {
-                    final imgFile = File(
-                        "${Get.find<SettingsScreenController>().supportDirPath}/thumbnails/${playerController.currentSong.value!.id}.png");
-                    return FutureBuilder(
-                      future: imgFile.exists(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.done &&
-                            snapshot.hasData &&
-                            snapshot.data == true) {
+        final isLocal = (song.extras?['url'] as String? ?? '').contains('file');
 
-                          /// if theme mode is dynamic then set the theme with image
-                          if (Get.find<SettingsScreenController>()
-                                  .themeModetype
-                                  .value ==
-                              ThemeType.dynamic) {
-                            Get.find<ThemeController>().setTheme(
-                                FileImage(imgFile),
-                                playerController.currentSong.value!.id);
-                          }
-
-                          return Image.file(
-                            imgFile,
-                            cacheHeight: cacheHeight,
-                            fit: BoxFit.cover,
-                          );
+        return SizedBox.expand(
+          child: isLocal
+              ? Builder(builder: (context) {
+                  final imgFile = File(
+                      "${Get.find<SettingsScreenController>().supportDirPath}/thumbnails/${song.id}.png");
+                  return FutureBuilder<bool>(
+                    future: imgFile.exists(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.done &&
+                          snapshot.data == true) {
+                        if (Get.find<SettingsScreenController>()
+                                .themeModetype
+                                .value ==
+                            ThemeType.dynamic) {
+                          Get.find<ThemeController>()
+                              .setTheme(FileImage(imgFile), song.id);
                         }
-                        return const SizedBox.shrink();
-                      },
-                    );
-                  })
 
-                /// else return image from network
-                : CachedNetworkImage(
+                        return Image.file(
+                          imgFile,
+                          cacheHeight: cacheHeight,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              Container(color: Theme.of(context).primaryColor),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  );
+                })
+              : Builder(builder: (context) {
+                  final artUriStr = song.artUri?.toString() ?? '';
+                  if (artUriStr.isEmpty) {
+                    return Container(color: Theme.of(context).primaryColor);
+                  }
+
+                  return CachedNetworkImage(
                     memCacheHeight: cacheHeight,
+                    imageUrl: artUriStr,
+                    fit: BoxFit.cover,
                     imageBuilder: (context, imageProvider) {
-                      Get.find<SettingsScreenController>()
-                                  .themeModetype
-                                  .value ==
-                              ThemeType.dynamic
-                          ? Future.delayed(
-                              const Duration(milliseconds: 50),
-                              () => Get.find<ThemeController>().setTheme(
-                                  imageProvider,
-                                  playerController.currentSong.value!.id))
-                          : null;
+                      if (Get.find<SettingsScreenController>()
+                              .themeModetype
+                              .value ==
+                          ThemeType.dynamic) {
+                        Future.delayed(
+                          const Duration(milliseconds: 50),
+                          () => Get.find<ThemeController>()
+                              .setTheme(imageProvider, song.id),
+                        );
+                      }
                       return Image(
                         image: imageProvider,
                         fit: BoxFit.cover,
                       );
                     },
-                    imageUrl:
-                        playerController.currentSong.value!.artUri.toString(),
-                    cacheKey: "${playerController.currentSong.value!.id}_song",
-                  )
-            : Container(),
-      ),
+                    placeholder: (context, url) =>
+                        Container(color: Theme.of(context).primaryColor),
+                    errorWidget: (context, url, error) =>
+                        Container(color: Theme.of(context).primaryColor),
+                  );
+                }),
+        );
+      },
     );
   }
 }

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:widget_marquee/widget_marquee.dart';
 
+import '/services/providers/models/provider_id.dart';
 import '/ui/player/components/animated_play_button.dart';
+import '/ui/widgets/source_explanation_sheet.dart';
 import '../player_controller.dart';
 
 class PlayerControlWidget extends StatelessWidget {
@@ -71,25 +73,72 @@ class PlayerControlWidget extends StatelessWidget {
                           ),
                         ),
                         Obx(() {
-                          final label = playerController
-                              .currentSong.value?.extras?['streamLabel'];
-                          return label == null
-                              ? const SizedBox.shrink()
-                              : Padding(
-                                  padding: const EdgeInsets.only(top: 3),
-                                  child: Text(
-                                    label.toString(),
-                                    textAlign: TextAlign.start,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary),
+                          final currentSong = playerController.currentSong.value;
+                          if (currentSong == null) return const SizedBox.shrink();
+                          final label = currentSong.extras?['streamLabel']?.toString();
+                          final source = currentSong.extras?['streamSource']?.toString();
+                          if (label == null && (source == null || source.isEmpty)) {
+                            return const SizedBox.shrink();
+                          }
+
+                          final provider = ProviderId.fromStableId(source ?? '');
+                          final providerName = provider?.displayName ?? (source ?? 'YouTube Music');
+                          final display = (label != null && label.isNotEmpty) ? label : providerName;
+
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                showSourceExplanationSheet(context, currentSong);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+                                    width: 0.8,
                                   ),
-                                );
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.graphic_eq,
+                                      size: 12,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        display,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Icon(
+                                      Icons.info_outline,
+                                      size: 11,
+                                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
                         })
                       ],
                     );

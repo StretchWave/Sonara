@@ -139,7 +139,9 @@ class AlbumScreenController extends PlaylistAlbumScreenControllerBase
   void onClose() {
     tempListContainer.clear();
     _animationController?.dispose();
-    Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    if (Get.isRegistered<HomeScreenController>()) {
+      Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    }
     super.onClose();
   }
 

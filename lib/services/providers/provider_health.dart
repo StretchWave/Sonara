@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import 'amazon/amazon_provider.dart';
 import 'apple/apple_provider.dart';
 import 'deezer/deezer_provider.dart';
+import 'models/provider_error.dart';
+import 'models/provider_id.dart';
 import 'qobuz/qobuz_api.dart';
 import 'soundcloud/soundcloud_audio_provider.dart';
 import 'stream_route_config.dart';
@@ -662,5 +664,125 @@ class ProviderHealthChecker {
       latencyMs: stopwatch.elapsedMilliseconds,
       message: message,
     );
+  }
+}
+
+/// Runtime metrics for one provider during actual resolution attempts.
+class RuntimeProviderMetrics {
+  RuntimeProviderMetrics(this.providerId);
+
+  final ProviderId providerId;
+
+  int successes = 0;
+  int failures = 0;
+  int timeouts = 0;
+  int matchRejections = 0;
+  int totalLatencyMs = 0;
+  int requestsCount = 0;
+  int consecutiveFailures = 0;
+
+  DateTime? lastSuccessAt;
+  DateTime? lastFailureAt;
+  DateTime? circuitBreakerCooldownUntil;
+
+  /// Whether the circuit breaker is currently open (provider temporarily disabled).
+  bool get isCircuitOpen {
+    final cooldown = circuitBreakerCooldownUntil;
+    if (cooldown == null) return false;
+    if (DateTime.now().isAfter(cooldown)) {
+      // Cooldown expired, half-open
+      circuitBreakerCooldownUntil = null;
+      return false;
+    }
+    return true;
+  }
+
+  /// Average resolution latency in ms.
+  int get averageLatencyMs =>
+      requestsCount > 0 ? (totalLatencyMs / requestsCount).round() : 0;
+
+  /// Success rate between 0.0 and 1.0.
+  double get successRate {
+    final totalAttempts = successes + failures;
+    if (totalAttempts == 0) return 1.0;
+    return successes / totalAttempts;
+  }
+}
+
+/// Global runtime health tracker for providers during playback & downloads.
+class RuntimeHealthTracker {
+  RuntimeHealthTracker._();
+
+  static final RuntimeHealthTracker instance = RuntimeHealthTracker._();
+
+  final Map<ProviderId, RuntimeProviderMetrics> _metrics = {};
+
+  static const int _circuitBreakerThreshold = 3;
+  static const Duration _cooldownDuration = Duration(seconds: 30);
+
+  /// Retrieves metrics for [id], initializing if absent.
+  RuntimeProviderMetrics getMetrics(ProviderId id) {
+    return _metrics.putIfAbsent(id, () => RuntimeProviderMetrics(id));
+  }
+
+  /// Whether [id] is healthy enough to query right now.
+  bool shouldAttempt(ProviderId id) {
+    final m = _metrics[id];
+    if (m == null) return true;
+    return !m.isCircuitOpen;
+  }
+
+  bool isHealthy(ProviderId id) => shouldAttempt(id);
+
+  /// Records a successful resolution from [id].
+  void recordSuccess(ProviderId id, int latencyMs) {
+    final m = getMetrics(id);
+    m.successes++;
+    m.requestsCount++;
+    m.totalLatencyMs += latencyMs;
+    m.consecutiveFailures = 0;
+    m.circuitBreakerCooldownUntil = null;
+    m.lastSuccessAt = DateTime.now();
+  }
+
+  /// Records a failure from [id].
+  void recordFailure(ProviderId id, ProviderErrorKind kind, int? latencyMs) {
+    final m = getMetrics(id);
+    m.failures++;
+    m.requestsCount++;
+    if (latencyMs != null) m.totalLatencyMs += latencyMs;
+    m.lastFailureAt = DateTime.now();
+
+    if (kind == ProviderErrorKind.timeout) {
+      m.timeouts++;
+    }
+
+    // Server errors, timeouts, network issues trip the circuit breaker
+    if (kind == ProviderErrorKind.timeout ||
+        kind == ProviderErrorKind.networkError ||
+        kind == ProviderErrorKind.httpServerError) {
+      m.consecutiveFailures++;
+      if (m.consecutiveFailures >= _circuitBreakerThreshold) {
+        m.circuitBreakerCooldownUntil = DateTime.now().add(_cooldownDuration);
+      }
+    }
+  }
+
+  /// Records that the provider answered successfully, but the track did not match.
+  void recordMatchRejection(ProviderId id, int? latencyMs) {
+    final m = getMetrics(id);
+    m.matchRejections++;
+    m.requestsCount++;
+    if (latencyMs != null) m.totalLatencyMs += latencyMs;
+  }
+
+  /// Resets metrics for [id].
+  void reset(ProviderId id) {
+    _metrics.remove(id);
+  }
+
+  /// Resets all metrics.
+  void resetAll() {
+    _metrics.clear();
   }
 }

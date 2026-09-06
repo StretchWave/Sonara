@@ -22,10 +22,26 @@ import '/utils/helper.dart';
 import '/models/media_Item_builder.dart';
 import '../ui/screens/Library/library_controller.dart';
 import 'music_service.dart';
-//import '../models/thumbnail.dart' as th;
+import '/services/providers/matching/isrc_resolver.dart';
+
+/// States of an individual download job.
+enum DownloadJobState {
+  queued,
+  resolving,
+  matching,
+  downloading,
+  verifying,
+  converting,
+  tagging,
+  completed,
+  failed,
+  cancelled,
+}
 
 class Downloader extends GetxService {
   final _dio = Dio();
+  final IsrcResolver _isrcResolver = IsrcResolver();
+  final currentJobState = DownloadJobState.completed.obs;
   MediaItem? currentSong;
   RxMap<String, List<MediaItem>> playlistQueue =
       <String, List<MediaItem>>{}.obs;
@@ -195,12 +211,28 @@ class Downloader extends GetxService {
         (globalFormat.isEmpty ? 'original' : globalFormat);
     final downloadSource = (song.extras?['downloadSource'] as String?) ?? '';
 
+    currentJobState.value = DownloadJobState.resolving;
+    var query = SongQuery.fromMediaItem(song);
+    if (query.isrc == null || query.isrc!.isEmpty) {
+      if (downloadSource.isEmpty || downloadSource != 'youtube_music') {
+        final resolvedIsrc = await _isrcResolver.resolve(
+          song: song.title,
+          artist: song.artist ?? '',
+          durationMs: song.duration?.inMilliseconds,
+        );
+        if (resolvedIsrc != null) {
+          query = query.copyWith(isrc: resolvedIsrc);
+        }
+      }
+    }
+
     final playerResponse = await StreamRouter.build(
       StreamRouteConfig.fromSettings(),
       forceProviderId: downloadSource.isEmpty ? null : downloadSource,
-    ).fetch(song.id, song: SongQuery.fromMediaItem(song));
+    ).fetch(song.id, song: query);
 
     if (!playerResponse.playable) {
+      currentJobState.value = DownloadJobState.failed;
       ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
           Get.context!,
           playerResponse.statusMSG == "networkError"
@@ -216,6 +248,7 @@ class Downloader extends GetxService {
 
     final requiredAudioStream = _pickAudioForFormat(playerResponse, requestedFormat);
     if (requiredAudioStream == null) {
+      currentJobState.value = DownloadJobState.failed;
       ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
           Get.context!, "downloadError3".tr,
           size: SanckBarSize.BIG,
@@ -242,6 +275,7 @@ class Downloader extends GetxService {
     String filePath = "$dirPath/$songTitle.$targetExt";
     final tempPath = "$filePath.part";
     printINFO("Downloading ($requestedFormat): $filePath");
+    currentJobState.value = DownloadJobState.downloading;
     final totalBytes = requiredAudioStream.size;
     final downloadHeaders = <String, dynamic>{
       if (totalBytes > 0) "Range": 'bytes=0-$totalBytes',
@@ -258,8 +292,24 @@ class Downloader extends GetxService {
       (value) async {
         printINFO(value.data);
 
+        // Post-download validation: verify downloaded file exists and is not truncated/empty
+        currentJobState.value = DownloadJobState.verifying;
+        final downloadedPart = File(tempPath);
+        if (!await downloadedPart.exists() || await downloadedPart.length() < 4096) {
+          if (await downloadedPart.exists()) await downloadedPart.delete();
+          currentJobState.value = DownloadJobState.failed;
+          ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
+              Get.context!, "downloadError3".tr,
+              size: SanckBarSize.BIG,
+              duration: const Duration(seconds: 2),
+              top: !GetPlatform.isDesktop));
+          complete.complete();
+          return;
+        }
+
         // Convert (MP3/FLAC) or move the temp file into place.
         if (needsConversion) {
+          currentJobState.value = DownloadJobState.converting;
           final ok = await _convertToFormat(tempPath, filePath, requestedFormat);
           if (!ok) {
             final fallbackPath = "$dirPath/$songTitle.$sourceExt";
@@ -312,6 +362,7 @@ class Downloader extends GetxService {
         final int? totalTracks = int.tryParse(trackDetails?[1] ?? "");
 
         try {
+          currentJobState.value = DownloadJobState.tagging;
           /// Reverted -- Removed AudioTags as using this package, app is flagged as TROJ_GEN.R002V01K623 by TrendMicro-HouseCall
           final imageUrl = song.artUri!.toString();
           Tag tag = Tag(
@@ -337,10 +388,12 @@ class Downloader extends GetxService {
         } catch (e) {
           printERROR("$e");
         }
+        currentJobState.value = DownloadJobState.completed;
         complete.complete();
       },
     ).onError(
       (error, stackTrace) {
+        currentJobState.value = DownloadJobState.failed;
         ScaffoldMessenger.of(Get.context!).showSnackBar(snackbar(
             Get.context!, "downloadError3".tr,
             size: SanckBarSize.BIG,

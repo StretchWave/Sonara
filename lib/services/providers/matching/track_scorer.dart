@@ -1,12 +1,12 @@
-/// Scoring engine for choosing the best cross-catalog match, ported from
-/// MetroFuse's Qobuz/Tidal matching logic (GPL-3.0, see repo attribution).
-///
-/// Scores are weighted so ISRC equality dominates, then exact title,
-/// artist and album agreement, with strict rejection rules for wrong
-/// artists, wrong versions and implausible durations.
+/// Scoring and matching engine for evaluating cross-catalog candidates against
+/// requested recordings.
 library;
 
+import '../models/match_decision.dart';
+import '../models/routing_policy.dart';
 import '../song_query.dart';
+import 'artist_matcher.dart';
+import 'duration_policy.dart';
 import 'isrc.dart';
 import 'text_normalizer.dart';
 import 'track_candidate.dart';
@@ -17,164 +17,245 @@ const int rejectScore = -1000000;
 /// Minimum score (without an exact ISRC match) to accept a candidate.
 const int minAcceptableScore = 260;
 
-/// Scores [candidate] against [query]. Returns [rejectScore] when the
-/// candidate cannot be the requested track, otherwise a positive score.
-int scoreCandidate({
+/// Evaluates [candidate] against [query] and produces a structured,
+/// explainable [MatchDecision].
+MatchDecision evaluateCandidate({
   required TrackCandidate candidate,
   required SongQuery query,
+  DurationTolerancePolicy tolerancePolicy = DurationTolerancePolicy.standard,
 }) {
   final wantedTitle = normalizeForMatch(query.title);
-  final wantedArtists =
-      query.artists.map(normalizeForMatch).where((a) => a.isNotEmpty).toList();
   final wantedAlbum = normalizeForMatch(query.album);
   final wantedIsrc = normalizeIsrc(query.isrc) ?? '';
-  final wantedDurationSec =
-      query.durationMs == null ? null : (query.durationMs! / 1000).round();
   final wantedTokens = significantTokens(wantedTitle);
 
   final candidateTitle = normalizeForMatch(candidate.title);
   final candidateAlbum = normalizeForMatch(candidate.album);
   final candidateIsrc = normalizeIsrc(candidate.isrc) ?? '';
-  final candidateArtists = candidate.artists
-      .map(normalizeForMatch)
-      .where((a) => a.isNotEmpty)
-      .toList();
-  final candidateDurationSec = candidate.durationMs == null
-      ? null
-      : (candidate.durationMs! / 1000).round();
 
-  if (wantedTitle.isEmpty) return rejectScore;
+  if (wantedTitle.isEmpty) {
+    return MatchDecision.rejected('Requested track title is empty',
+        rawScore: rejectScore);
+  }
 
-  // Check versions on the raw titles and albums (parens intact), since
-  // candidates carry versions like "Song (Remix)" inside the title and
-  // "Album (Continuous Mix)" inside the album — normalization strips
-  // them and would hide the mismatch.
+  // 1. Version gate: compare full title + album strings with VersionClassifier
   final rawWanted = '${query.title} ${query.album ?? ''}'.toLowerCase();
   final rawCandidate =
       '${candidate.title} ${candidate.album ?? ''}'.toLowerCase();
   final queryHasVersion = containsVersionDescriptor(rawWanted);
-  if (hasVersionMismatch(rawWanted, rawCandidate)) {
-    return rejectScore;
+
+  final versionMismatch = hasVersionMismatch(rawWanted, rawCandidate);
+  if (versionMismatch) {
+    return MatchDecision.rejected(
+      'Version mismatch: candidate carries version descriptor not in query',
+      rawScore: rejectScore,
+      breakdown: const {'version': -1000000},
+    );
   }
 
   final isrcExact = wantedIsrc.isNotEmpty && candidateIsrc == wantedIsrc;
+  final breakdown = <String, int>{};
+  final reasons = <String>[];
+  final warnings = <String>[];
   var score = 0;
-  if (isrcExact) score += 1000;
 
-  // Title agreement.
-  if (wantedTitle.isNotEmpty) {
-    if (candidateTitle == wantedTitle) {
-      score += 320;
-    } else if (candidateTitle.contains(wantedTitle) ||
-        wantedTitle.contains(candidateTitle)) {
-      score += 130;
-    } else if (wordsOverlap(wantedTitle, candidateTitle) >= 2) {
-      score += 60;
-    } else {
-      score -= 80;
-    }
+  if (isrcExact) {
+    score += 1000;
+    breakdown['isrc'] = 1000;
+    reasons.add('Exact ISRC match ($candidateIsrc)');
   }
 
-  // Token overlap.
+  // 2. Title agreement
+  var titleScore = 0;
+  if (wantedTitle.isNotEmpty) {
+    if (candidateTitle == wantedTitle) {
+      titleScore = 320;
+      reasons.add('Exact title match');
+    } else if (candidateTitle.contains(wantedTitle) ||
+        wantedTitle.contains(candidateTitle)) {
+      titleScore = 130;
+      reasons.add('Title substring match');
+    } else if (wordsOverlap(wantedTitle, candidateTitle) >= 2) {
+      titleScore = 60;
+      reasons.add('Title word overlap');
+    } else {
+      titleScore = -80;
+      warnings.add('Low title similarity');
+    }
+  }
+  score += titleScore;
+  breakdown['title'] = titleScore;
+
+  // 3. Token overlap
+  var tokenScore = 0;
   if (wantedTokens.isNotEmpty) {
     final candidateTokens = significantTokens(candidateTitle);
     final matched = wantedTokens.where(candidateTokens.contains).length;
     if (matched == wantedTokens.length) {
-      score += 120;
+      tokenScore = 120;
     } else if (matched >= wantedTokens.length - 1) {
-      score += 40;
+      tokenScore = 40;
     } else if (wantedTokens.length <= 2) {
-      score -= 160;
+      tokenScore = -160;
     } else {
-      score -= 60;
+      tokenScore = -60;
     }
   }
+  score += tokenScore;
+  breakdown['tokens'] = tokenScore;
 
-  // Album agreement.
+  // 4. Album agreement
+  var albumScore = 0;
   if (wantedAlbum.isNotEmpty && candidateAlbum.isNotEmpty) {
     if (candidateAlbum == wantedAlbum) {
-      score += 180;
+      albumScore = 180;
+      reasons.add('Exact album match');
     } else if (candidateAlbum.contains(wantedAlbum) ||
         wantedAlbum.contains(candidateAlbum)) {
-      score += 80;
+      albumScore = 80;
     } else if (wordsOverlap(wantedAlbum, candidateAlbum) >= 2) {
-      score += 35;
+      albumScore = 35;
     } else {
-      score -= 35;
+      albumScore = -35;
     }
   }
+  score += albumScore;
+  breakdown['album'] = albumScore;
 
-  // Artist agreement — a mismatch is fatal.
-  if (wantedArtists.isNotEmpty) {
-    final exactMatches = wantedArtists.where(candidateArtists.contains).length;
-    final partial = wantedArtists.any((wanted) => candidateArtists
-        .any((candidate) => candidate.contains(wanted) || wanted.contains(candidate)));
-    if (exactMatches > 0) {
-      score += 220 + (exactMatches - 1) * 50;
-    } else if (partial) {
-      score += 90;
-    } else {
-      return rejectScore;
-    }
+  // 5. Artist agreement using intelligent artist matcher
+  final artistResult = matchArtists(
+    wantedArtists: query.artists,
+    candidateArtists: candidate.artists,
+  );
+
+  if (!artistResult.isCompatible) {
+    return MatchDecision.rejected(
+      artistResult.description,
+      rawScore: rejectScore,
+      breakdown: {...breakdown, 'artist': rejectScore},
+    );
   }
 
-  // Same-recording gate: a cross-catalog candidate is only substituted for
-  // the user's chosen video when it is essentially the SAME recording.
-  // Length is the strongest signal — covers, mixes, live cuts and edits
-  // almost always differ from the original, and only an exact ISRC proves
-  // sameness beyond length. Without this gate, a cover video whose title
-  // happens to match the original would silently play the original instead
-  // of the cover the user picked.
-  if (wantedDurationSec != null &&
-      candidateDurationSec != null &&
-      !isrcExact) {
-    final diff = (wantedDurationSec - candidateDurationSec).abs();
-    final tolerance = wantedDurationSec < 90 ? 20 : 5;
-    if (diff > tolerance) return rejectScore;
+  score += artistResult.scoreContribution;
+  breakdown['artist'] = artistResult.scoreContribution;
+  if (artistResult.primaryMatches) {
+    reasons.add(artistResult.description);
   }
 
-  // Duration plausibility (scoring bonus once the gate above passed).
-  if (wantedDurationSec != null && candidateDurationSec != null) {
-    final diff = (wantedDurationSec - candidateDurationSec).abs();
-    if (diff <= 2) {
-      score += 160;
-    } else if (diff <= 5) {
-      score += 100;
-    } else if (diff <= 10) {
-      score += 45;
-    } else if (diff >= 30) {
-      score -= 120;
-    }
+  // 6. Duration gate and evaluation
+  final isLive = classifyVersion(query.title, query.album) == VersionType.live;
+  final durationResult = evaluateDuration(
+    expectedMs: query.durationMs,
+    candidateMs: candidate.durationMs,
+    policy: tolerancePolicy,
+    isLiveRecording: isLive,
+    isrcExact: isrcExact,
+  );
+
+  if (!durationResult.isAcceptable && !isrcExact) {
+    return MatchDecision.rejected(
+      durationResult.description,
+      rawScore: rejectScore,
+      breakdown: {...breakdown, 'duration': rejectScore},
+    );
   }
 
-  // When the user asked for the plain song (no version in the query),
-  // prefer the unlabeled original over explicit variant labels such as
-  // "Original Mix" or "Radio Edit" of the same recording.
+  score += durationResult.scoreContribution;
+  breakdown['duration'] = durationResult.scoreContribution;
+  if (durationResult.diffMs != null) {
+    final diffSec = (durationResult.diffMs!.abs() / 1000).toStringAsFixed(1);
+    reasons.add('Duration within ${diffSec}s');
+  }
+
+  // 7. Version preference bonus
+  var versionScore = 0;
   if (!queryHasVersion && !containsVersionDescriptor(rawCandidate)) {
-    score += 25;
+    versionScore = 25;
+    score += versionScore;
   }
+  breakdown['version'] = versionScore;
 
-  if (candidate.hires) score += 15;
+  // 8. Quality / HiRes bonus
+  var hiresScore = 0;
+  if (candidate.hires) {
+    hiresScore = 15;
+    score += hiresScore;
+    reasons.add('Hi-Res audio available');
+  }
+  breakdown['hires'] = hiresScore;
 
-  final acceptable =
-      score > rejectScore && (score >= minAcceptableScore || isrcExact);
-  return acceptable ? score : rejectScore;
+  return MatchDecision.fromScore(
+    score: score,
+    isrcMatch: isrcExact,
+    breakdown: breakdown,
+    reasons: reasons,
+    warnings: warnings,
+    durationDiffMs: durationResult.diffMs,
+    versionCompatible: true,
+    artistCompatible: true,
+    method: isrcExact ? MatchMethod.isrcExact : MatchMethod.fuzzyMetadata,
+    rejectScore: rejectScore,
+    minAcceptable: minAcceptableScore,
+  );
+}
+
+/// Computes a numeric score for [candidate] against [query].
+///
+/// Returns [rejectScore] if the candidate fails verification, otherwise a
+/// positive score representing match quality.
+int scoreCandidate({
+  required TrackCandidate candidate,
+  required SongQuery query,
+  DurationTolerancePolicy tolerancePolicy = DurationTolerancePolicy.standard,
+}) {
+  final decision = evaluateCandidate(
+    candidate: candidate,
+    query: query,
+    tolerancePolicy: tolerancePolicy,
+  );
+  return decision.accepted ? decision.rawScore : rejectScore;
 }
 
 /// Returns the best-scoring candidate above the acceptance threshold, or
 /// null when nothing matches [query] confidently.
 TrackCandidate? pickBestMatch(
   List<TrackCandidate> candidates,
-  SongQuery query,
-) {
+  SongQuery query, {
+  DurationTolerancePolicy tolerancePolicy = DurationTolerancePolicy.standard,
+}) {
+  final result = pickBestMatchWithDecision(
+    candidates,
+    query,
+    tolerancePolicy: tolerancePolicy,
+  );
+  return result?.candidate;
+}
+
+/// Returns the best match along with its structured [MatchDecision].
+({TrackCandidate candidate, MatchDecision decision})? pickBestMatchWithDecision(
+  List<TrackCandidate> candidates,
+  SongQuery query, {
+  DurationTolerancePolicy tolerancePolicy = DurationTolerancePolicy.standard,
+}) {
   TrackCandidate? best;
+  MatchDecision? bestDecision;
   var bestScore = rejectScore;
+
   for (final candidate in candidates) {
-    final score = scoreCandidate(candidate: candidate, query: query);
-    if (score > bestScore) {
+    final decision = evaluateCandidate(
+      candidate: candidate,
+      query: query,
+      tolerancePolicy: tolerancePolicy,
+    );
+    if (decision.accepted && decision.rawScore > bestScore) {
       best = candidate;
-      bestScore = score;
+      bestDecision = decision;
+      bestScore = decision.rawScore;
     }
   }
-  return best;
+
+  if (best != null && bestDecision != null) {
+    return (candidate: best, decision: bestDecision);
+  }
+  return null;
 }

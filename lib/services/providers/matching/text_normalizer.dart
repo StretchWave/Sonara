@@ -1,6 +1,9 @@
 /// Text utilities for matching track metadata across different catalogs.
 library;
 
+import '../models/version_type.dart';
+export '../models/version_type.dart' show VersionType, VersionClassifier;
+
 /// Normalizes a string for fuzzy comparison: lowercases, expands "&",
 /// strips bracketed/parenthesized annotations and punctuation, and
 /// collapses whitespace.
@@ -110,16 +113,16 @@ bool containsOriginalMarker(String text) {
   return originalMarkers.any((word) => _containsWholeWord(lower, word));
 }
 
+/// Classifies the version of a track using structured phrase/word recognition.
+VersionType classifyVersion(String title, [String? album]) {
+  return VersionClassifier.classify(title, album);
+}
+
 /// Returns true when [candidate] carries a version descriptor that the
 /// [wanted] query does not — a strong signal these are different
 /// recordings and should not be matched.
 bool hasVersionMismatch(String wanted, String candidate) {
-  final queryHasVersion = containsVersionDescriptor(wanted);
-  final candidateHasVersion = containsVersionDescriptor(candidate);
-  if (!candidateHasVersion || queryHasVersion) return false;
-  // A candidate that explicitly labels itself the original ("Original
-  // Mix", "Original Version") is exactly what we want, not a mismatch.
-  return !containsOriginalMarker(candidate);
+  return VersionClassifier.hasVersionMismatch(wanted, null, candidate, null);
 }
 
 bool _containsWholeWord(String text, String word) {

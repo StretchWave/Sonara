@@ -39,22 +39,24 @@ class StandardPlayer extends StatelessWidget {
       children: [
         /// Stack first child
         /// Album art image in background covering the whole screen
-        BackgroudImage(
-          key: Key("${playerController.currentSong.value?.id}_background"),
-          cacheHeight: 200,
+        Obx(
+          () => BackgroudImage(
+            key: Key("${playerController.currentSong.value?.id}_background"),
+            cacheHeight: 500,
+          ),
         ),
 
         /// Stack child
         /// Blur effect on background
         BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+          filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
           child: Stack(
             children: [
               /// opacity effect on background
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).primaryColor.withOpacity(0.8),
+                    color: Theme.of(context).primaryColor.withOpacity(0.45),
                   ),
                 ),
               ),
@@ -69,8 +71,8 @@ class StandardPlayer extends StatelessWidget {
                     gradient: LinearGradient(
                       colors: [
                         Theme.of(context).primaryColor,
-                        Theme.of(context).primaryColor,
-                        Theme.of(context).primaryColor.withOpacity(0.4),
+                        Theme.of(context).primaryColor.withOpacity(0.6),
+                        Theme.of(context).primaryColor.withOpacity(0.2),
                         Theme.of(context).primaryColor.withOpacity(0),
                       ],
                       begin: Alignment.bottomCenter,
@@ -86,8 +88,11 @@ class StandardPlayer extends StatelessWidget {
 
         /// Stack child
         /// Galaxy star overlay on top of the blurred background
-        if (Get.find<SettingsScreenController>().galaxyOverlayEnabled.isTrue)
-          const Positioned.fill(child: GalaxyOverlay()),
+        Obx(
+          () => Get.find<SettingsScreenController>().galaxyOverlayEnabled.isTrue
+              ? const Positioned.fill(child: GalaxyOverlay())
+              : const SizedBox.shrink(),
+        ),
 
         /// Stack child
         /// Player content in landscape mode

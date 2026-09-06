@@ -89,7 +89,7 @@ void main() {
 
   test('default router contains YouTube and SoundCloud providers', () {
     expect(StreamRouter.instance.providers.map((p) => p.id),
-        ['youtube_music', 'soundcloud']);
+        ['youtube_music', 'soundcloud', 'internet_archive']);
   });
 
   test('passes the song query through to providers', () async {

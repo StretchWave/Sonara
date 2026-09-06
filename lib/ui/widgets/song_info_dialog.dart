@@ -41,6 +41,13 @@ class SongInfoDialog extends StatelessWidget {
                 InfoItem(
                     title: "bitrate".tr,
                     value: "${streamInfo["bitrate"] ?? "NA"}"),
+                if (song.extras?['streamSource'] != null || streamInfo["providerId"] != null)
+                  InfoItem(
+                    title: "Source",
+                    value: "${song.extras?['streamSource'] ?? streamInfo["providerId"]}",
+                  ),
+                if (song.extras?['isrc'] != null)
+                  InfoItem(title: "ISRC", value: "${song.extras!['isrc']}"),
                 if (streamInfo["label"] != null)
                   InfoItem(title: "Format", value: "${streamInfo["label"]}"),
                 if (streamInfo["sampleRate"] != null)

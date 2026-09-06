@@ -1,25 +1,25 @@
+import 'dart:async';
+
 import '../stream_service.dart' show Audio, Codec, StreamProvider;
 import 'audio_source_provider.dart';
+import 'models/provider_error.dart';
+import 'models/provider_result.dart';
+import 'provider_health.dart';
+import 'provider_registry.dart';
 import 'resolved_stream.dart';
-import 'amazon/amazon_provider.dart';
-import 'apple/apple_provider.dart';
-import 'deezer/deezer_provider.dart';
-import 'instagram/instagram_provider.dart';
-import 'internet_archive_provider.dart';
-import 'qobuz/qobuz_provider.dart';
-import 'soundcloud/soundcloud_audio_provider.dart';
 import 'song_query.dart';
 import 'stream_route_config.dart';
-import 'tidal/tidal_provider.dart';
-import 'youtube_audio_provider.dart';
 
 /// Routes stream requests through the configured providers in priority
 /// order. The first provider that returns a playable stream wins; if every
 /// provider fails, the last failure (with its status message) is returned.
 class StreamRouter {
   StreamRouter({List<AudioSourceProvider>? providers})
-      : providers = List.unmodifiable(providers ??
-            const [YouTubeAudioProvider(), SoundCloudAudioProvider()]);
+      : providers = List.unmodifiable(
+          providers ??
+              ProviderRegistry.instance
+                  .buildProviderChain(StreamRouteConfig.fromSettings()),
+        );
 
   /// The ordered list of providers, highest priority first.
   final List<AudioSourceProvider> providers;
@@ -29,70 +29,15 @@ class StreamRouter {
   /// Builds a router for [config]: the enabled/configured providers sorted
   /// by [StreamRouteConfig.providerOrder] (highest priority first).
   ///
-  /// When [forceProviderId] is set, only that provider is kept in the
-  /// router (used to retry a song from a specific source, e.g. falling
-  /// back to YouTube). If the provider is not enabled/configured, the
-  /// router ends up empty and every fetch fails.
-  static StreamRouter build(StreamRouteConfig config,
-      {String? forceProviderId}) {
-    final available = <String, AudioSourceProvider>{
-      if (config.qobuzEnabled && config.qobuzInstances.isNotEmpty)
-        'qobuz': QobuzProvider(
-          instances: config.qobuzInstances,
-          country: config.qobuzCountry,
-          qualityCode: config.qobuzQuality,
-          matchOverrides: config.matchOverrides,
-        ),
-      if (config.tidalEnabled && config.tidalEndpoints.isNotEmpty)
-        'tidal': TidalProvider(
-          endpoints: config.tidalEndpoints,
-          quality: config.tidalQuality,
-          matchOverrides: config.matchOverrides,
-        ),
-      if (config.deezerEnabled)
-        'deezer': DeezerProvider(
-          endpoints: config.deezerEndpoints,
-          quality: config.deezerQuality,
-          matchOverrides: config.matchOverrides,
-        ),
-      if (config.appleEnabled)
-        'apple': AppleProvider(
-          endpoints: config.appleEndpoints,
-          matchOverrides: config.matchOverrides,
-        ),
-      if (config.amazonEnabled)
-        'amazon': AmazonProvider(
-          endpoints: config.amazonEndpoints,
-          quality: config.amazonQuality,
-          matchOverrides: config.matchOverrides,
-        ),
-      'youtube_music': YouTubeAudioProvider(visitorId: config.visitorId),
-      if (config.soundcloudEnabled)
-        'soundcloud': const SoundCloudAudioProvider(),
-      if (config.internetArchiveEnabled)
-        'internet_archive': const InternetArchiveProvider(),
-      if (config.instagramEnabled && config.instagramCookie.isNotEmpty)
-        'instagram': InstagramProvider(
-          sessionCookie: config.instagramCookie,
-          matchOverrides: config.matchOverrides,
-        ),
-    };
-
-    if (forceProviderId != null) {
-      final forced = available.remove(forceProviderId);
-      available.clear();
-      if (forced != null) available[forceProviderId] = forced;
-    }
-
-    // Sort enabled providers by the configured priority order.  Providers
-    // that are not listed in [providerOrder] keep their insertion order at
-    // the end.
-    final ordered = <AudioSourceProvider>[];
-    for (final id in config.providerOrder) {
-      final provider = available.remove(id);
-      if (provider != null) ordered.add(provider);
-    }
-    ordered.addAll(available.values);
+  /// Uses [ProviderRegistry] to construct the provider chain cleanly.
+  static StreamRouter build(
+    StreamRouteConfig config, {
+    String? forceProviderId,
+  }) {
+    final ordered = ProviderRegistry.instance.buildProviderChain(
+      config,
+      forceProviderId: forceProviderId,
+    );
     return StreamRouter(providers: ordered);
   }
 
@@ -101,46 +46,167 @@ class StreamRouter {
   Future<StreamProvider> fetch(String videoId, {SongQuery? song}) async {
     final query = song ?? SongQuery(mediaId: videoId);
     StreamProvider? lastFailure;
+
     for (final provider in providers) {
+      final pid = provider.typedProviderId;
+
+      // Circuit breaker: skip degraded providers unless forced
+      if (providers.length > 1 &&
+          !RuntimeHealthTracker.instance.shouldAttempt(pid)) {
+        continue;
+      }
+
+      final sw = Stopwatch()..start();
       try {
         final resolved = await provider.resolve(query);
+        sw.stop();
+
         if (resolved.playable) {
+          RuntimeHealthTracker.instance
+              .recordSuccess(pid, sw.elapsedMilliseconds);
           return resolved.withProviderId(provider.id).toStreamProvider();
         }
+
+        RuntimeHealthTracker.instance
+            .recordMatchRejection(pid, sw.elapsedMilliseconds);
         lastFailure = resolved.withProviderId(provider.id).toStreamProvider();
-      } catch (_) {
-        // Provider crashed — fall through to the next one.
+      } catch (e) {
+        sw.stop();
+        RuntimeHealthTracker.instance.recordFailure(
+          pid,
+          e is TimeoutException
+              ? ProviderErrorKind.timeout
+              : ProviderErrorKind.networkError,
+          sw.elapsedMilliseconds,
+        );
       }
     }
+
     return lastFailure ??
         StreamProvider(playable: false, statusMSG: 'Unknown error occurred');
   }
 
-  /// Resolves [videoId] against **every** configured provider and returns
-  /// all playable results with their provider ids, not just the first hit.
+  /// Resolves [query] and returns a structured [ProviderResult] for the best
+  /// matching provider.
+  Future<ProviderResult> resolveBest(SongQuery query) async {
+    ProviderResult? lastFailure;
+
+    for (final provider in providers) {
+      final pid = provider.typedProviderId;
+      if (providers.length > 1 &&
+          !RuntimeHealthTracker.instance.shouldAttempt(pid)) {
+        continue;
+      }
+
+      final result = await provider.resolveResult(query);
+      if (result.isPlayable) {
+        RuntimeHealthTracker.instance
+            .recordSuccess(pid, result.latencyMs ?? 0);
+        return result;
+      }
+
+      if (result.isError) {
+        RuntimeHealthTracker.instance.recordFailure(
+          pid,
+          result.error?.kind ?? ProviderErrorKind.unknown,
+          result.latencyMs,
+        );
+      } else {
+        RuntimeHealthTracker.instance
+            .recordMatchRejection(pid, result.latencyMs);
+      }
+      lastFailure = result;
+    }
+
+    return lastFailure ??
+        ProviderResult.failure(
+          providerId: '',
+          error: const ProviderError(
+            kind: ProviderErrorKind.noMatch,
+            message: 'No provider could resolve the track',
+          ),
+        );
+  }
+
+  /// Resolves [videoId] against configured providers in bounded parallel
+  /// batches (default concurrency: 3) and returns all playable results.
   ///
-  /// Used by the download flow to show every source that can supply a
-  /// FLAC copy (name, length, size) instead of silently picking the first.
-  Future<List<ProviderStreamResult>> fetchAll(String videoId,
-      {SongQuery? song}) async {
+  /// Used by the download flow and source comparison sheet.
+  Future<List<ProviderStreamResult>> fetchAll(
+    String videoId, {
+    SongQuery? song,
+    int maxConcurrency = 3,
+  }) async {
     final query = song ?? SongQuery(mediaId: videoId);
     final results = <ProviderStreamResult>[];
-    for (final provider in providers) {
-      try {
-        final resolved = await provider.resolve(query);
-        if (resolved.playable) {
-          results.add(ProviderStreamResult(
-            providerId: provider.id,
-            stream: resolved.withProviderId(provider.id),
-          ));
-        }
-        // Non-playable providers are skipped: the download sheet only lists
-        // sources that actually returned a stream.
-      } catch (_) {
-        // Provider crashed — skip it.
+
+    // Bounded parallel execution: process providers in chunks of maxConcurrency
+    for (var i = 0; i < providers.length; i += maxConcurrency) {
+      final end = (i + maxConcurrency < providers.length)
+          ? i + maxConcurrency
+          : providers.length;
+      final chunk = providers.sublist(i, end);
+
+      final chunkResults = await Future.wait(
+        chunk.map((provider) async {
+          try {
+            final resolved = await provider.resolve(query);
+            if (resolved.playable) {
+              return ProviderStreamResult(
+                providerId: provider.id,
+                stream: resolved.withProviderId(provider.id),
+              );
+            }
+          } catch (_) {}
+          return null;
+        }),
+      );
+
+      for (final res in chunkResults) {
+        if (res != null) results.add(res);
       }
     }
+
     return results;
+  }
+
+  /// Yields playable streams progressively as each provider completes its
+  /// resolution attempt.
+  Stream<ProviderStreamResult> fetchAllProgressive(
+    String videoId, {
+    SongQuery? song,
+    int maxConcurrency = 3,
+  }) async* {
+    final query = song ?? SongQuery(mediaId: videoId);
+    final controller = StreamController<ProviderStreamResult>();
+
+    unawaited(() async {
+      for (var i = 0; i < providers.length; i += maxConcurrency) {
+        final end = (i + maxConcurrency < providers.length)
+            ? i + maxConcurrency
+            : providers.length;
+        final chunk = providers.sublist(i, end);
+
+        await Future.wait(
+          chunk.map((provider) async {
+            try {
+              final resolved = await provider.resolve(query);
+              if (resolved.playable && !controller.isClosed) {
+                controller.add(ProviderStreamResult(
+                  providerId: provider.id,
+                  stream: resolved.withProviderId(provider.id),
+                ));
+              }
+            } catch (_) {}
+          }),
+        );
+      }
+      if (!controller.isClosed) {
+        await controller.close();
+      }
+    }());
+
+    yield* controller.stream;
   }
 }
 

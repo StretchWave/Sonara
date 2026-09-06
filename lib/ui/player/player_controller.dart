@@ -842,15 +842,19 @@ class PlayerController extends GetxController
         size: SanckBarSize.MEDIUM));
   }
 
-  @override
-  void dispose() {
+  bool _disposed = false;
+  void _performCleanup() {
+    if (_disposed) return;
+    _disposed = true;
     _audioHandler.customAction('dispose');
     keyboardSubscription.cancel();
     scrollController.dispose();
     gesturePlayerStateAnimationController?.dispose();
     sleepTimer?.cancel();
     if (GetPlatform.isWindows) {
-      Get.delete<WindowsAudioService>();
+      if (Get.isRegistered<WindowsAudioService>()) {
+        Get.delete<WindowsAudioService>();
+      }
     }
     // ensure wakelock disabled when player controller disposed
     try {
@@ -858,6 +862,17 @@ class PlayerController extends GetxController
     } catch (e) {
       printERROR(e);
     }
+  }
+
+  @override
+  void onClose() {
+    _performCleanup();
+    super.onClose();
+  }
+
+  @override
+  void dispose() {
+    _performCleanup();
     super.dispose();
   }
 }

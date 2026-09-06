@@ -92,15 +92,20 @@ class MiniPlayer extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            playerController.currentSong.value != null
-                                ? ImageWidget(
-                                    size: 50,
-                                    song: playerController.currentSong.value!,
-                                  )
-                                : const SizedBox(
-                                    height: 50,
-                                    width: 50,
-                                  ),
+                            InkWell(
+                              onTap: () {
+                                playerController.playerPanelController.open();
+                              },
+                              child: playerController.currentSong.value != null
+                                  ? ImageWidget(
+                                      size: 50,
+                                      song: playerController.currentSong.value!,
+                                    )
+                                  : const SizedBox(
+                                      height: 50,
+                                      width: 50,
+                                    ),
+                            ),
                           ],
                         ),
                         const SizedBox(

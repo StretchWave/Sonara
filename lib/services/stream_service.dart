@@ -43,6 +43,8 @@ class StreamProvider {
       "highQualityAudio": highestQualityAudio?.toJson()
     };
   }
+
+  Map<String, dynamic> toJson() => hmStreamingData;
 }
 
 class Audio {

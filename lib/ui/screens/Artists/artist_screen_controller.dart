@@ -289,7 +289,9 @@ class ArtistScreenController extends GetxController
     albumScrollController.dispose();
     singlesScrollController.dispose();
     tabController?.dispose();
-    Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    if (Get.isRegistered<HomeScreenController>()) {
+      Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    }
     super.onClose();
   }
 }

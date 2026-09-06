@@ -26,6 +26,9 @@ class SearchResultScreenController extends GetxController
   //ScrollContollers List
   final Map<String, ScrollController> scrollControllers = {};
 
+  int _activeSearchRequestId = 0;
+  int _activeTabRequestId = 0;
+
   @override
   void onReady() {
     _getInitSearchResult();
@@ -53,6 +56,7 @@ class SearchResultScreenController extends GetxController
             separatedResultContent[railItems[value - 1]].isEmpty)) {
       final tabName = railItems[value - 1];
       final itemCount = (tabName == 'Songs' || tabName == 'Videos') ? 25 : 10;
+      final tabReqId = ++_activeTabRequestId;
       try {
         final searchEndpoint = resultContent['searchEndpoint'];
         final filterParams =
@@ -61,6 +65,7 @@ class SearchResultScreenController extends GetxController
             filter: tabName.replaceAll(" ", "_").toLowerCase(),
             limit: itemCount,
             filterParams: filterParams);
+        if (tabReqId != _activeTabRequestId || isClosed) return;
         separatedResultContent[tabName] = x[tabName] ?? [];
         additionalParamNext[tabName] = x['params'];
 
@@ -80,6 +85,7 @@ class SearchResultScreenController extends GetxController
           }
         });
       } catch (e) {
+        if (tabReqId != _activeTabRequestId || isClosed) return;
         // A failed tab fetch must not leave the tab stuck on its spinner.
         printINFO("Tab search failed for $tabName: $e");
         separatedResultContent[tabName] = [];
@@ -88,7 +94,9 @@ class SearchResultScreenController extends GetxController
         };
       }
     }
-    isSeparatedResultContentFetced.value = true;
+    if (!isClosed) {
+      isSeparatedResultContentFetced.value = true;
+    }
   }
 
   Future<void> getContinuationContents() async {
@@ -98,19 +106,16 @@ class SearchResultScreenController extends GetxController
       continuationInProgress = false;
       return;
     }
+    continuationInProgress = true;
     try {
-      final x =
-          await musicServices.getSearchContinuation(additionalParamsNextTab);
-      final moreItems = x[tabName] ?? [];
-      if (separatedResultContent[tabName] is List) {
-        (separatedResultContent[tabName] as List).addAll(moreItems);
-      } else {
-        separatedResultContent[tabName] = moreItems;
-      }
-      additionalParamNext[tabName] = x['params'];
-      separatedResultContent.refresh();
+      final res = await musicServices.getSearchContinuation(
+          additionalParamsNextTab);
+      if (isClosed) return;
+      separatedResultContent[tabName] =
+          (separatedResultContent[tabName] ?? []) + (res[tabName] ?? []);
+      additionalParamNext[tabName] = res['params'];
     } catch (e) {
-      // A failed continuation must not permanently disable infinite scroll.
+      if (isClosed) return;
       printINFO("Continuation failed: $e");
     } finally {
       continuationInProgress = false;
@@ -122,6 +127,7 @@ class SearchResultScreenController extends GetxController
   }
 
   Future<void> _getInitSearchResult() async {
+    final searchReqId = ++_activeSearchRequestId;
     isResultContentFetced.value = false;
     isSearchError.value = false;
     final args = Get.arguments;
@@ -133,8 +139,11 @@ class SearchResultScreenController extends GetxController
     }
     queryString.value = args;
     try {
-      resultContent.value = await musicServices.search(args);
+      final searchRes = await musicServices.search(args);
+      if (searchReqId != _activeSearchRequestId || isClosed) return;
+      resultContent.value = searchRes;
     } catch (e) {
+      if (searchReqId != _activeSearchRequestId || isClosed) return;
       // A failed request must not leave the screen stuck on the loading
       // spinner forever — surface it with a retry instead.
       printINFO("Search failed: $e");
@@ -142,6 +151,7 @@ class SearchResultScreenController extends GetxController
       isResultContentFetced.value = true;
       return;
     }
+    if (searchReqId != _activeSearchRequestId || isClosed) return;
     _disposeTabState();
     final allKeys = resultContent.keys.where((element) => ([
           "Songs",
@@ -226,7 +236,9 @@ class SearchResultScreenController extends GetxController
     for (String item in railItems) {
       scrollControllers[item]?.dispose();
     }
-    Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    if (Get.isRegistered<HomeScreenController>()) {
+      Get.find<HomeScreenController>().whenHomeScreenOnTop();
+    }
     tabController?.dispose();
     super.onClose();
   }
