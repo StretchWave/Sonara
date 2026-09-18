@@ -451,6 +451,21 @@ class SettingsScreen extends StatelessWidget {
                                   settingsController.skipSilenceEnabled.value,
                               onChanged: settingsController.toggleSkipSilence),
                         )),
+                  if (!isDesktop)
+                    ListTile(
+                        contentPadding:
+                            const EdgeInsets.only(left: 5, right: 10),
+                        title: Text("External media controls"),
+                        subtitle: Text(
+                            "Allow headset, Bluetooth, lockscreen, notification and Auto to control playback. When off, metadata stays but buttons are hidden.",
+                            style: Theme.of(context).textTheme.bodyMedium),
+                        trailing: Obx(
+                          () => CustSwitch(
+                              value:
+                                  settingsController.inputControlEnabled.value,
+                              onChanged: settingsController
+                                  .toggleInputControlEnabled),
+                        )),
                   if (isDesktop)
                     ListTile(
                         contentPadding:

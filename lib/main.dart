@@ -167,8 +167,11 @@ void _setAppInitPrefs() {
       'themePrimaryColor': 4278199603,
       'discoverContentType': "REC",
       'newVersionVisibility': updateCheckFlag,
-      "cacheHomeScreenData": true
+      "cacheHomeScreenData": true,
+      "inputControlEnabled": true
     });
+  } else if (!appPrefs.containsKey("inputControlEnabled")) {
+    appPrefs.put("inputControlEnabled", true);
   }
 }
 

@@ -76,6 +76,13 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
   // var networkErrorPause = false;
   bool isSongLoading = true;
 
+  /// Single source of truth for external input gating (mirrors
+  /// SettingsScreenController.inputControlEnabled). Default true so
+  /// fresh installs have controls enabled. Persisted in Hive "AppPrefs".
+  bool _inputControlEnabled =
+      Hive.box("AppPrefs").get("inputControlEnabled", defaultValue: true) == true;
+  bool get inputControlEnabled => _inputControlEnabled;
+
   // Consecutive playback errors, used to stop the re-resolve retry loop
   // after a few attempts instead of looping forever on a bad URL.
   int _playbackErrorRetries = 0;
@@ -144,6 +151,38 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     if (GetPlatform.isAndroid) {
       _listenSessionIdStream();
     }
+    // React to toggle changes without requiring playback restart.
+    // Poll via Hive watch or GetX if available.
+    try {
+      final box = Hive.box("AppPrefs");
+      box.watch(key: "inputControlEnabled").listen((event) {
+        final enabled = (event.value as bool?) ?? true;
+        _setInputControlEnabled(enabled);
+      });
+    } catch (_) {}
+  }
+
+  /// Central toggle wiring: updates internal flag and re-emits
+  /// playbackState so system UI (notification/lockscreen/Auto) hides
+  /// transport buttons immediately while keeping metadata/artwork.
+  void _setInputControlEnabled(bool enabled) {
+    if (_inputControlEnabled == enabled) return;
+    _inputControlEnabled = enabled;
+    // Re-emit playbackState with/without controls so MediaSession's
+    // available commands reflect the toggle instantly.
+    final playing = _player.playing;
+    final current = playbackState.value;
+    playbackState.add(current.copyWith(
+      controls: enabled
+          ? [
+              MediaControl.skipToPrevious,
+              if (playing) MediaControl.pause else MediaControl.play,
+              MediaControl.skipToNext,
+            ]
+          : [],
+      systemActions: enabled ? const {MediaAction.seek} : const {},
+      androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
+    ));
   }
 
   Future<void> _createCacheDir() async {
@@ -178,16 +217,21 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         _playbackErrorRetries = 0;
       }
       final playing = _player.playing;
+      final enabled = _inputControlEnabled;
       playbackState.add(playbackState.value.copyWith(
-        controls: [
-          MediaControl.skipToPrevious,
-          if (playing) MediaControl.pause else MediaControl.play,
-          MediaControl.skipToNext,
-        ],
-        systemActions: const {
-          MediaAction.seek,
-        },
-        androidCompactActionIndices: const [0, 1, 2],
+        controls: enabled
+            ? [
+                MediaControl.skipToPrevious,
+                if (playing) MediaControl.pause else MediaControl.play,
+                MediaControl.skipToNext,
+              ]
+            : [],
+        systemActions: enabled
+            ? const {
+                MediaAction.seek,
+              }
+            : const {},
+        androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
         processingState: isSongLoading
             ? AudioProcessingState.loading
             : const {
@@ -514,6 +558,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> play() async {
+    if (!_inputControlEnabled) return; // gated: external play when toggle off
     if (currentSongUrl == null ||
         (GetPlatform.isDesktop &&
             (_player.duration == null ||
@@ -536,13 +581,20 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
   }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() {
+    if (!_inputControlEnabled) return Future.value();
+    return _player.pause();
+  }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) {
+    if (!_inputControlEnabled) return Future.value();
+    return _player.seek(position);
+  }
 
   @override
   Future<void> skipToQueueItem(int index) async {
+    if (!_inputControlEnabled) return;
     if (index < 0 || index >= queue.value.length) return;
     await customAction("playByIndex", {'index': index});
   }
@@ -589,6 +641,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> skipToNext() async {
+    if (!_inputControlEnabled) return;
     final index = _getNextSongIndex();
     if (index != currentIndex) {
       if (_player.position != Duration.zero) _player.seek(Duration.zero);
@@ -601,6 +654,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> skipToPrevious() async {
+    if (!_inputControlEnabled) return;
     if (_player.position.inMilliseconds > 5000) {
       _player.seek(Duration.zero);
       return;
@@ -614,6 +668,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+    if (!_inputControlEnabled) return;
     if (repeatMode == AudioServiceRepeatMode.none) {
       loopModeEnabled = false;
     } else {
@@ -623,6 +678,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    if (!_inputControlEnabled) return;
     if (shuffleMode == AudioServiceShuffleMode.none) {
       shuffleModeEnabled = false;
       shuffledQueue.clear();
@@ -910,6 +966,10 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           currentShuffleIndex = 0;
         }
         break;
+      case 'setInputControlEnabled':
+        final enabled = extras?['enabled'] as bool? ?? true;
+        _setInputControlEnabled(enabled);
+        break;
       default:
         break;
     }
@@ -974,6 +1034,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
   @override
   Future<void> playFromMediaId(String mediaId,
       [Map<String, dynamic>? extras]) async {
+    if (!_inputControlEnabled) return;
     customEvent.add({
       'eventType': 'playFromMediaId',
       'songId': mediaId,
@@ -994,6 +1055,11 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> stop() async {
+    if (!_inputControlEnabled) {
+      // Still allow service cleanup but don't stop playback via player
+      // when external input is gated; keep metadata card visible.
+      return super.stop();
+    }
     await _player.stop();
     return super.stop();
   }
