@@ -36,7 +36,7 @@ class SettingsScreenController extends GetxController {
   final slidableActionEnabled = true.obs;
   final isIgnoringBatteryOptimizations = false.obs;
   final autoOpenPlayer = false.obs;
-  final discoverContentType = "REC".obs;
+  final discoverContentType = _initialDiscoverContentType().obs;
   final isNewVersionAvailable = false.obs;
   final isLinkedWithPiped = false.obs;
   final stopPlyabackOnSwipeAway = false.obs;
@@ -133,6 +133,20 @@ class SettingsScreenController extends GetxController {
   static int _prefInt(String key, int fallback) {
     final value = Hive.box('AppPrefs').get(key, defaultValue: fallback);
     return value is int ? value : fallback;
+  }
+
+  static String _initialDiscoverContentType() {
+    try {
+      final box = Hive.box("AppPrefs");
+      final stored = box.get('discoverContentType');
+      if (stored == "TR" || stored == "TMV" || stored == "QP") {
+        box.put('discoverContentType', "REC");
+        return "REC";
+      }
+      return (stored == "BOLI" || stored == "REC") ? stored : "REC";
+    } catch (_) {
+      return "REC";
+    }
   }
 
   void toggleQobuzEnabled(bool val) {
@@ -343,6 +357,13 @@ class SettingsScreenController extends GetxController {
         setBox.get("exportLocationPath") ?? "/storage/emulated/0/Music";
     downloadingFormat.value = setBox.get('downloadingFormat') ?? "original";
     discoverContentType.value = setBox.get('discoverContentType') ?? "REC";
+    // Migrate removed regional chart and quick picks types to REC
+    if (discoverContentType.value == "TR" ||
+        discoverContentType.value == "TMV" ||
+        discoverContentType.value == "QP") {
+      discoverContentType.value = "REC";
+      setBox.put('discoverContentType', "REC");
+    }
     slidableActionEnabled.value = setBox.get('slidableActionEnabled') ?? true;
     if (setBox.containsKey("piped")) {
       isLinkedWithPiped.value = setBox.get("piped")['isLoggedIn'];

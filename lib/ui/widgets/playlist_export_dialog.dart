@@ -5,7 +5,7 @@ import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:html/parser.dart' as html_parser;
 
-import '/ui/screens/Playlist/playlist_screen_controller.dart';
+import '../screens/Playlist/playlist_screen_controller.dart';
 import 'common_dialog_widget.dart';
 import 'snackbar.dart';
 

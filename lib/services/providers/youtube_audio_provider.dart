@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:hive/hive.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../stream_service.dart' show Audio, Codec;
@@ -55,6 +56,80 @@ class YouTubeAudioProvider extends AudioSourceProvider {
   @override
   String get id => providerId;
 
+  static String? _resolvedVisitorId;
+
+  /// Retrieves cached visitor ID or dynamically fetches a fresh one from YouTube.
+  static Future<String?> getOrFetchVisitorId({
+    String? currentVisitorId,
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      if (currentVisitorId != null && currentVisitorId.isNotEmpty) {
+        _resolvedVisitorId = currentVisitorId;
+        return currentVisitorId;
+      }
+      if (_resolvedVisitorId != null && _resolvedVisitorId!.isNotEmpty) {
+        return _resolvedVisitorId;
+      }
+      try {
+        if (Hive.isBoxOpen('AppPrefs')) {
+          final prefs = Hive.box('AppPrefs');
+          final vData = prefs.get('visitorId');
+          if (vData is Map &&
+              vData['id'] is String &&
+              (vData['id'] as String).isNotEmpty) {
+            _resolvedVisitorId = vData['id'] as String;
+            return _resolvedVisitorId;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Fetch directly from YouTube Music
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 4);
+      final req = await client.getUrl(Uri.parse('https://music.youtube.com/'));
+      req.headers.set('User-Agent',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0');
+      req.headers.set('Cookie', 'CONSENT=YES+1; PREF=gl=US&hl=en');
+      final res = await req.close().timeout(const Duration(seconds: 4));
+      final body = await utf8.decoder.bind(res).join();
+      client.close();
+
+      String? newId;
+      final match =
+          RegExp(r'ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;').firstMatch(body);
+      if (match != null) {
+        final ytcfg = jsonDecode(match.group(1)!);
+        if (ytcfg is Map && ytcfg['VISITOR_DATA'] is String) {
+          newId = ytcfg['VISITOR_DATA'] as String;
+        }
+      }
+      if (newId == null || newId.isEmpty) {
+        final m2 =
+            RegExp(r'"VISITOR_DATA"\s*:\s*"([^"]+)"').firstMatch(body);
+        if (m2 != null) {
+          newId = m2.group(1);
+        }
+      }
+      if (newId != null && newId.isNotEmpty) {
+        _resolvedVisitorId = newId;
+        try {
+          if (Hive.isBoxOpen('AppPrefs')) {
+            final prefs = Hive.box('AppPrefs');
+            prefs.put('visitorId', {
+              'id': newId,
+              'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2592000,
+            });
+          }
+        } catch (_) {}
+        return newId;
+      }
+    } catch (_) {}
+    return _resolvedVisitorId;
+  }
+
   static const _ipadUserAgent =
       'com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)';
 
@@ -86,25 +161,6 @@ class YouTubeAudioProvider extends AudioSourceProvider {
       includeStreamHeaders: false,
     ),
     const _InnerTubeClientCandidate(
-      name: 'IPADOS',
-      clientName: 'IOS',
-      clientVersion: '21.03.3',
-      clientNameHeader: '5',
-      userAgent: _ipadUserAgent,
-      clientContext: {
-        'client': {
-          'clientName': 'IOS',
-          'clientVersion': '21.03.3',
-          'deviceMake': 'Apple',
-          'deviceModel': 'iPad7,6',
-          'osName': 'iPadOS',
-          'osVersion': '17.7.10.21H450',
-          'gl': 'US',
-          'hl': 'en',
-        }
-      },
-    ),
-    const _InnerTubeClientCandidate(
       name: 'TVHTML5_EMBEDDED',
       clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
       clientVersion: '2.0',
@@ -134,7 +190,7 @@ class YouTubeAudioProvider extends AudioSourceProvider {
   Future<ResolvedStream> resolve(SongQuery query) async {
     final videoId = query.mediaId;
 
-    // 1. Try InnerTube multi-client racing (iOS / visionOS / TV embedded)
+    // 1. Try InnerTube multi-client racing (visionOS / TV embedded)
     try {
       final innerTubeResult = await _resolveInnerTube(videoId);
       if (innerTubeResult != null && innerTubeResult.playable) {
@@ -159,118 +215,162 @@ class YouTubeAudioProvider extends AudioSourceProvider {
   }
 
   Future<ResolvedStream?> _resolveInnerTube(String videoId) async {
+    String? activeVisitorId =
+        await getOrFetchVisitorId(currentVisitorId: visitorId);
+
     final httpClient = HttpClient()
       ..connectionTimeout = const Duration(seconds: 6);
 
     try {
       for (final candidate in _candidates) {
-        if (candidate.needsVisitorId && visitorId.isEmpty) {
-          // Without visitor data this client gets LOGIN_REQUIRED — skip.
-          continue;
-        }
-        try {
-          final uri = Uri.parse(
-              'https://music.youtube.com/youtubei/v1/player?prettyPrint=false');
-          final req = await httpClient.postUrl(uri);
-          req.headers.set('Content-Type', 'application/json');
-          req.headers.set('User-Agent', candidate.userAgent);
-          req.headers.set('X-YouTube-Client-Name', candidate.clientNameHeader);
-          req.headers.set('X-YouTube-Client-Version', candidate.clientVersion);
-          req.headers.set('Origin', 'https://music.youtube.com');
-          if (candidate.needsVisitorId) {
-            req.headers.set('X-Goog-Visitor-Id', visitorId);
-          }
-          final context = Map<String, dynamic>.from(candidate.clientContext);
-          if (candidate.isEmbedded) {
-            context['thirdParty'] = {
-              'embedUrl': 'https://www.youtube.com/watch?v=$videoId'
-            };
-          }
-
-          final bodyBytes = utf8.encode(jsonEncode({
-            'context': context,
-            'videoId': videoId,
-            'contentCheckOk': true,
-            'racyCheckOk': true,
-          }));
-          req.add(bodyBytes);
-
-          final res = await req.close().timeout(const Duration(seconds: 6));
-          if (res.statusCode != 200) continue;
-
-          final resBody = await utf8.decoder.bind(res).join();
-          final json = jsonDecode(resBody);
-
-          final playability = json['playabilityStatus'];
-          if (playability != null && playability['status'] != 'OK') {
+        if (candidate.needsVisitorId &&
+            (activeVisitorId == null || activeVisitorId.isEmpty)) {
+          activeVisitorId = await getOrFetchVisitorId(forceRefresh: true);
+          if (activeVisitorId == null || activeVisitorId.isEmpty) {
             continue;
           }
+        }
 
-          final streamingData = json['streamingData'];
-          if (streamingData == null) continue;
+        ResolvedStream? streamResult = await _queryCandidate(
+          httpClient,
+          candidate,
+          videoId,
+          activeVisitorId,
+        );
 
-          final formatsRaw = (streamingData['adaptiveFormats'] as List? ?? [])
-              .where(
-                  (f) => (f['mimeType'] as String? ?? '').startsWith('audio/'))
-              .toList();
-
-          if (formatsRaw.isEmpty) continue;
-
-          final formats = <Audio>[];
-          for (final f in formatsRaw) {
-            final url = f['url'] as String?;
-            if (url == null || url.isEmpty) continue;
-
-            final itag = (f['itag'] as num?)?.toInt() ?? 140;
-            final mimeType = (f['mimeType'] as String? ?? 'audio/mp4');
-            final bitrate = (f['bitrate'] as num?)?.toInt() ?? 128000;
-            final approxDurationMs =
-                int.tryParse('${f['approxDurationMs']}') ?? 0;
-            final contentLength = int.tryParse('${f['contentLength']}') ?? 0;
-            final loudnessDb =
-                (f['loudnessDb'] as num?)?.toDouble() ?? 0.0;
-
-            final isOpus = mimeType.contains('opus') ||
-                mimeType.contains('webm') ||
-                itag == 251 ||
-                itag == 250 ||
-                itag == 249;
-
-            formats.add(Audio(
-              itag: itag,
-              audioCodec: isOpus ? Codec.opus : Codec.mp4a,
-              bitrate: bitrate,
-              duration: approxDurationMs,
-              loudnessDb: loudnessDb,
-              url: url,
-              size: contentLength,
-              mimeType: mimeType.split(';').first.trim(),
-              headers: candidate.includeStreamHeaders
-                  ? {
-                      'User-Agent': candidate.userAgent,
-                    }
-                  : null,
-            ));
-          }
-
-          if (formats.isNotEmpty) {
-            // Sort by bitrate descending
-            formats.sort((a, b) => b.bitrate.compareTo(a.bitrate));
-            return ResolvedStream(
-              playable: true,
-              statusMSG: 'OK',
-              audioFormats: formats,
+        // If candidate failed with missing/expired visitor data, refresh and retry once
+        if (streamResult == null && candidate.needsVisitorId) {
+          activeVisitorId = await getOrFetchVisitorId(forceRefresh: true);
+          if (activeVisitorId != null && activeVisitorId.isNotEmpty) {
+            streamResult = await _queryCandidate(
+              httpClient,
+              candidate,
+              videoId,
+              activeVisitorId,
             );
           }
-        } catch (_) {
-          // Candidate failed, try next
-          continue;
+        }
+
+        if (streamResult != null && streamResult.playable) {
+          return streamResult;
         }
       }
       return null;
     } finally {
       httpClient.close();
     }
+  }
+
+  Future<ResolvedStream?> _queryCandidate(
+    HttpClient httpClient,
+    _InnerTubeClientCandidate candidate,
+    String videoId,
+    String? visitorToken,
+  ) async {
+    try {
+      final uri = Uri.parse(
+          'https://music.youtube.com/youtubei/v1/player?prettyPrint=false');
+      final req = await httpClient.postUrl(uri);
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('User-Agent', candidate.userAgent);
+      req.headers.set('X-YouTube-Client-Name', candidate.clientNameHeader);
+      req.headers.set('X-YouTube-Client-Version', candidate.clientVersion);
+      req.headers.set('Origin', 'https://music.youtube.com');
+      if (candidate.needsVisitorId &&
+          visitorToken != null &&
+          visitorToken.isNotEmpty) {
+        req.headers.set('X-Goog-Visitor-Id', visitorToken);
+      }
+      final context = Map<String, dynamic>.from(candidate.clientContext);
+      if (candidate.needsVisitorId &&
+          visitorToken != null &&
+          visitorToken.isNotEmpty) {
+        final clientMap = Map<String, dynamic>.from(context['client'] as Map);
+        clientMap['visitorData'] = visitorToken;
+        context['client'] = clientMap;
+      }
+      if (candidate.isEmbedded) {
+        context['thirdParty'] = {
+          'embedUrl': 'https://www.youtube.com/watch?v=$videoId'
+        };
+      }
+
+      final bodyBytes = utf8.encode(jsonEncode({
+        'context': context,
+        'videoId': videoId,
+        'contentCheckOk': true,
+        'racyCheckOk': true,
+      }));
+      req.add(bodyBytes);
+
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return null;
+
+      final resBody = await utf8.decoder.bind(res).join();
+      final json = jsonDecode(resBody);
+
+      final playability = json['playabilityStatus'];
+      if (playability != null && playability['status'] != 'OK') {
+        return null;
+      }
+
+      final streamingData = json['streamingData'];
+      if (streamingData == null) return null;
+
+      final formatsRaw = (streamingData['adaptiveFormats'] as List? ?? [])
+          .where((f) => (f['mimeType'] as String? ?? '').startsWith('audio/'))
+          .toList();
+
+      if (formatsRaw.isEmpty) return null;
+
+      final formats = <Audio>[];
+      for (final f in formatsRaw) {
+        final url = f['url'] as String?;
+        if (url == null || url.isEmpty) continue;
+        // Never serve range-gated iOS URLs that return 403 past 1MB
+        if (url.contains('c=IOS') || url.contains('c=ios')) continue;
+
+        final itag = (f['itag'] as num?)?.toInt() ?? 140;
+        final mimeType = (f['mimeType'] as String? ?? 'audio/mp4');
+        final bitrate = (f['bitrate'] as num?)?.toInt() ?? 128000;
+        final approxDurationMs =
+            int.tryParse('${f['approxDurationMs']}') ?? 0;
+        final contentLength = int.tryParse('${f['contentLength']}') ?? 0;
+        final loudnessDb = (f['loudnessDb'] as num?)?.toDouble() ?? 0.0;
+
+        final isOpus = mimeType.contains('opus') ||
+            mimeType.contains('webm') ||
+            itag == 251 ||
+            itag == 250 ||
+            itag == 249;
+
+        formats.add(Audio(
+          itag: itag,
+          audioCodec: isOpus ? Codec.opus : Codec.mp4a,
+          bitrate: bitrate,
+          duration: approxDurationMs,
+          loudnessDb: loudnessDb,
+          url: url,
+          size: contentLength,
+          mimeType: mimeType.split(';').first.trim(),
+          headers: candidate.includeStreamHeaders
+              ? {
+                  'User-Agent': candidate.userAgent,
+                }
+              : null,
+        ));
+      }
+
+      if (formats.isNotEmpty) {
+        formats.sort((a, b) => b.bitrate.compareTo(a.bitrate));
+        return ResolvedStream(
+          playable: true,
+          statusMSG: 'OK',
+          audioFormats: formats,
+        );
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<ResolvedStream?> _resolvePiped(String videoId) async {

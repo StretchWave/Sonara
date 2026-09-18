@@ -6,9 +6,11 @@ import 'package:get/get.dart';
 
 import '/ui/screens/Home/home_screen_controller.dart';
 import '/ui/screens/Settings/settings_screen_controller.dart';
-import '../utils/helper.dart';
+import '../services/onboarding_controller.dart';
 import '../ui/navigator.dart';
 import '../ui/player/player.dart';
+import '../ui/screens/Onboarding/onboarding_screen.dart';
+import '../utils/helper.dart';
 import 'player/components/mini_player.dart';
 import 'player/player_controller.dart';
 import 'widgets/bottom_nav_bar.dart';
@@ -20,6 +22,20 @@ import 'widgets/up_next_queue.dart';
 class Home extends StatelessWidget {
   const Home({super.key});
   static const routeName = '/appHome';
+  @override
+  Widget build(BuildContext context) {
+    final onboardingController = Get.find<OnboardingController>();
+
+    return Obx(() {
+      if (!onboardingController.isOnboardingComplete.value) {
+        return const OnboardingScreen();
+      }
+      return _HomeContent();
+    });
+  }
+}
+
+class _HomeContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     printINFO("Home");

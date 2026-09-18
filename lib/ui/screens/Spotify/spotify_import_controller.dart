@@ -573,13 +573,24 @@ class SpotifyImportController extends GetxController {
   Future<void> createPlaylist(String name) => _runDestination(
         name,
         () => service.createPlaylist(name, eligibleItems,
-            artworkUrl: playlistArtwork.value),
+            artworkUrl: playlistArtwork.value,
+            spotifyPlaylistId: playlistId.value),
       );
 
   Future<void> addToExistingPlaylist(Playlist playlist) =>
       _runDestination(
         playlist.title,
-        () => service.addToExistingPlaylist(playlist, eligibleItems),
+        () async {
+          final result =
+              await service.addToExistingPlaylist(playlist, eligibleItems);
+          // Connect the Spotify source to the target playlist so future
+          // syncs work. Only set if not already connected to another source.
+          if (!playlist.isSpotifyConnected && playlistId.value.isNotEmpty) {
+            await _saveSpotifyConnection(
+                playlist.playlistId, playlistId.value);
+          }
+          return result;
+        },
       );
 
   Future<void> _runDestination(
@@ -644,5 +655,19 @@ class SpotifyImportController extends GetxController {
     confidenceFilter.value = ConfidenceFilter.highAndMedium;
     sortType.value = ImportSortType.playlistOrder;
     sortAscending.value = true;
+  }
+
+  /// Persists a Spotify playlist connection onto an existing local playlist.
+  Future<void> _saveSpotifyConnection(
+      String localPlaylistId, String spotifyId) async {
+    final box = await Hive.openBox('LibraryPlaylists');
+    final raw = box.get(localPlaylistId);
+    if (raw is Map) {
+      final json = Map<dynamic, dynamic>.from(raw);
+      json['spotifyPlaylistId'] = spotifyId;
+      json['lastSpotifySyncedAt'] = DateTime.now().millisecondsSinceEpoch;
+      await box.put(localPlaylistId, json);
+    }
+    await box.close();
   }
 }

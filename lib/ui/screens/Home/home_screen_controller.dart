@@ -12,6 +12,8 @@ import '/models/playlist.dart';
 import '/models/quick_picks.dart';
 import '/services/music_service.dart';
 import '/services/recommendation_service.dart';
+import '../../../utils/language_filter.dart';
+import '../Onboarding/language_selection_step.dart';
 import '../Settings/settings_screen_controller.dart';
 import '/ui/widgets/new_version_dialog.dart';
 
@@ -61,8 +63,39 @@ class HomeScreenController extends GetxController {
   Future<bool> loadContentFromDb() async {
     final homeScreenData = await Hive.openBox("homeScreenData");
     if (homeScreenData.keys.isNotEmpty) {
-      final String quickPicksType = homeScreenData.get("quickPicksType");
-      final List quickPicksData = homeScreenData.get("quickPicks");
+      final String quickPicksType =
+          homeScreenData.get("quickPicksType") ?? "";
+      // Invalidate stale regional cache
+      if (quickPicksType == "Quick picks" ||
+          quickPicksType == "Trending" ||
+          quickPicksType == "Top music videos") {
+        return false;
+      }
+
+      final box = Hive.box("AppPrefs");
+      final storedLangs = box.get("musicLanguages");
+      final userLangs = (storedLangs is List)
+          ? storedLangs.map((e) => e.toString()).toList()
+          : <String>[];
+      if (userLangs.isNotEmpty) {
+        final List fixedContentData = homeScreenData.get("fixedContent") ?? [];
+        final hasIndian =
+            userLangs.any((l) => indianLanguageCodes.contains(l));
+        for (final item in fixedContentData) {
+          if (item is Map) {
+            final title = item["title"]?.toString() ?? "";
+            if (!hasIndian &&
+                LanguageFilter.matchesIndianRegionalMarkers(title)) {
+              return false;
+            }
+            final scriptLang = LanguageFilter.detectScriptLanguage(title);
+            if (scriptLang != null && !userLangs.contains(scriptLang)) {
+              return false;
+            }
+          }
+        }
+      }
+      final List quickPicksData = homeScreenData.get("quickPicks") ?? [];
       final List middleContentData = homeScreenData.get("middleContent") ?? [];
       final List fixedContentData = homeScreenData.get("fixedContent") ?? [];
       quickPicks.value = QuickPicks(
@@ -89,6 +122,11 @@ class HomeScreenController extends GetxController {
   Future<void> loadContentFromNetwork({bool silent = false}) async {
     final box = Hive.box("AppPrefs");
     String contentType = box.get("discoverContentType") ?? "REC";
+    // Migrate removed regional chart and quick picks types to REC
+    if (contentType == "TR" || contentType == "TMV" || contentType == "QP") {
+      contentType = "REC";
+      box.put("discoverContentType", "REC");
+    }
 
     networkError.value = false;
     try {
@@ -96,45 +134,12 @@ class HomeScreenController extends GetxController {
       final homeContentListMap = await _musicServices.getHome(
           limit:
               Get.find<SettingsScreenController>().noOfHomeScreenContent.value);
-      if (contentType == "TR") {
-        final index = homeContentListMap
-            .indexWhere((element) => element['title'] == "Trending");
-        if (index != -1 && index != 0) {
-          quickPicks.value = QuickPicks(
-              List<MediaItem>.from(homeContentListMap[index]["contents"]),
-              title: "Trending");
-        } else if (index == -1) {
-          List charts = await _musicServices.getCharts(contentType);
-          final index = charts.indexWhere((element) =>
-              element['title'] ==
-              (contentType == "TMV" ? "Top Music Videos" : "Trending"));
-          if (index != -1) {
-            quickPicks.value = QuickPicks(
-                List<MediaItem>.from(charts[index]["contents"]),
-                title: charts[index]['title']);
-            middleContentTemp.addAll(charts);
-          }
-        }
-      } else if (contentType == "TMV") {
-        final index = homeContentListMap
-            .indexWhere((element) => element['title'] == "Top music videos");
-        if (index != -1 && index != 0) {
-          final con = homeContentListMap.removeAt(index);
-          quickPicks.value = QuickPicks(List<MediaItem>.from(con["contents"]),
-              title: con["title"]);
-        } else if (index == -1) {
-          List charts = await _musicServices.getCharts(contentType);
-          final index = charts.indexWhere((element) =>
-              element['title'] ==
-              (contentType == "TMV" ? "Top Music Videos" : "Trending"));
-          if (index != -1) {
-            quickPicks.value = QuickPicks(
-                List<MediaItem>.from(charts[index]["contents"]),
-                title: charts[index]["title"]);
-            middleContentTemp.addAll(charts);
-          }
-        }
-      } else if (contentType == "BOLI") {
+
+      // Remove any IP-based regional "Quick picks" shelf from home content
+      homeContentListMap.removeWhere((element) =>
+          element is Map && element['title'] == "Quick picks");
+
+      if (contentType == "BOLI") {
         try {
           final songId = box.get("recentSongId");
           if (songId != null) {
@@ -149,7 +154,8 @@ class HomeScreenController extends GetxController {
           printERROR(
               "Seems Based on last interaction content currently not available!");
         }
-      } else if (contentType == "REC") {
+      } else {
+        // Default to personalized REC
         try {
           final recService = Get.find<RecommendationService>();
           final recommendations = await recService.getRecommendations();
@@ -162,33 +168,17 @@ class HomeScreenController extends GetxController {
         }
       }
 
-      if (quickPicks.value.songList.isEmpty) {
-        // "Quick picks" may be missing for some sessions (e.g. new visitors
-        // get an onboarding home without song sections) — fall back to the
-        // first section that actually contains songs instead of crashing.
-        final index = homeContentListMap
-            .indexWhere((element) => element['title'] == "Quick picks");
-        if (index != -1) {
-          final con = homeContentListMap.removeAt(index);
-          quickPicks.value = QuickPicks(
-              List<MediaItem>.from(con["contents"]),
-              title: "Quick picks");
-        } else {
-          final songsIndex = homeContentListMap.indexWhere((element) =>
-              element['contents'] is List &&
-              (element['contents'] as List).isNotEmpty &&
-              (element['contents'] as List).first is MediaItem);
-          if (songsIndex != -1) {
-            final con = homeContentListMap.removeAt(songsIndex);
-            quickPicks.value = QuickPicks(
-                List<MediaItem>.from(con["contents"]),
-                title: con["title"]);
-          }
-        }
+      middleContent.value = _setContentList(middleContentTemp);
+      final filteredShelves = _setContentList(homeContentListMap);
+
+      // If YouTube's IP-geolocated shelves yielded few language-appropriate
+      // shelves, supplement with personalized shelves (favorite artists & language hits)
+      if (filteredShelves.length < 3) {
+        final supplementary = await _fetchPersonalizedSupplementaryShelves();
+        filteredShelves.addAll(supplementary);
       }
 
-      middleContent.value = _setContentList(middleContentTemp);
-      fixedContent.value = _setContentList(homeContentListMap);
+      fixedContent.value = filteredShelves;
 
       isContentFetched.value = true;
 
@@ -204,25 +194,164 @@ class HomeScreenController extends GetxController {
     }
   }
 
+  Future<List<dynamic>> _fetchPersonalizedSupplementaryShelves() async {
+    final supplementary = [];
+    final box = Hive.box("AppPrefs");
+    final storedLangs = box.get("musicLanguages");
+    final userLangs = (storedLangs is List)
+        ? storedLangs.map((e) => e.toString()).toList()
+        : <String>[];
+
+    final storedArtists = box.get("favoriteArtists");
+    final artistNames = <String>{};
+    if (storedArtists is List) {
+      for (final a in storedArtists) {
+        if (a is Map && a['name'] != null) {
+          artistNames.add(a['name'].toString().toLowerCase().trim());
+        }
+      }
+    }
+
+    // 1. Shelves for favorite artists
+    if (storedArtists is List && storedArtists.isNotEmpty) {
+      for (final a in storedArtists.take(2)) {
+        if (a is Map) {
+          final browseId = a['browseId']?.toString() ?? '';
+          final name = a['name']?.toString() ?? '';
+          if (browseId.isNotEmpty && browseId.startsWith('UC')) {
+            try {
+              final artistData = await _musicServices.getArtist(browseId);
+              final albumsSection = artistData['Albums'];
+              if (albumsSection is Map && albumsSection['content'] is List) {
+                final albumList = (albumsSection['content'] as List)
+                    .whereType<Album>()
+                    .take(10)
+                    .toList();
+                if (albumList.length >= 2) {
+                  supplementary.add(AlbumContent(
+                    albumList: albumList,
+                    title: "Albums by $name",
+                  ));
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    }
+
+    // 2. Curated playlists for user's selected languages
+    if (userLangs.isNotEmpty) {
+      try {
+        final isEnglish = userLangs.contains('en');
+        final query = isEnglish
+            ? "Today's Top Hits"
+            : "${musicLanguageMap[userLangs.first] ?? ''} top hits";
+        final searchRes =
+            await _musicServices.search(query, filter: 'featured_playlists');
+        final playlists = searchRes['Featured playlists'] ??
+            searchRes['Community playlists'];
+        if (playlists is List) {
+          final validPlaylists = playlists
+              .whereType<Playlist>()
+              .where((p) => LanguageFilter.isContentAllowed(
+                    title: p.title,
+                    subtitle: p.description,
+                    allowedLanguages: userLangs,
+                    favoriteArtistNames: artistNames,
+                  ))
+              .take(10)
+              .toList();
+          if (validPlaylists.length >= 2) {
+            supplementary.add(PlaylistContent(
+              playlistList: validPlaylists,
+              title: isEnglish ? "Top Global Hits" : "Top Hits",
+            ));
+          }
+        }
+      } catch (_) {}
+    }
+
+    return supplementary;
+  }
+
   List _setContentList(
     List<dynamic> contents,
   ) {
+    final box = Hive.box("AppPrefs");
+    final storedLangs = box.get("musicLanguages");
+    final userLangs = (storedLangs is List)
+        ? storedLangs.map((e) => e.toString()).toList()
+        : <String>[];
+
+    final storedArtists = box.get("favoriteArtists");
+    final artistNames = <String>{};
+    if (storedArtists is List) {
+      for (final a in storedArtists) {
+        if (a is Map && a['name'] != null) {
+          artistNames.add(a['name'].toString().toLowerCase().trim());
+        }
+      }
+    }
+
     List contentTemp = [];
     for (var content in contents) {
-      if((content["contents"]).isEmpty) continue;
-      if ((content["contents"][0]).runtimeType == Playlist) {
-        final tmp = PlaylistContent(
-            playlistList: (content["contents"]).whereType<Playlist>().toList(),
-            title: content["title"]);
-        if (tmp.playlistList.length >= 2) {
-          contentTemp.add(tmp);
+      if (content is! Map || content["contents"] == null) continue;
+      final rawItems = content["contents"];
+      if (rawItems is! List || rawItems.isEmpty) continue;
+
+      final shelfTitle = content["title"]?.toString() ?? "";
+
+      // Discard entire shelf if the title indicates an unselected regional language
+      if (userLangs.isNotEmpty) {
+        final hasIndian =
+            userLangs.any((l) => indianLanguageCodes.contains(l));
+        if (!hasIndian &&
+            LanguageFilter.matchesIndianRegionalMarkers(shelfTitle)) {
+          continue;
         }
-      } else if ((content["contents"][0]).runtimeType == Album) {
-        final tmp = AlbumContent(
-            albumList: (content["contents"]).whereType<Album>().toList(),
-            title: content["title"]);
-        if (tmp.albumList.length >= 2) {
-          contentTemp.add(tmp);
+        final scriptLang = LanguageFilter.detectScriptLanguage(shelfTitle);
+        if (scriptLang != null && !userLangs.contains(scriptLang)) {
+          continue;
+        }
+      }
+
+      if (rawItems[0] is Playlist) {
+        final filteredPlaylists = rawItems.whereType<Playlist>().where((p) {
+          if (userLangs.isEmpty) return true;
+          return LanguageFilter.isContentAllowed(
+            title: p.title,
+            subtitle: p.description,
+            allowedLanguages: userLangs,
+            favoriteArtistNames: artistNames,
+          );
+        }).toList();
+
+        if (filteredPlaylists.length >= 2) {
+          contentTemp.add(PlaylistContent(
+            playlistList: filteredPlaylists,
+            title: shelfTitle,
+          ));
+        }
+      } else if (rawItems[0] is Album) {
+        final filteredAlbums = rawItems.whereType<Album>().where((a) {
+          if (userLangs.isEmpty) return true;
+          final artistSubtitle = (a.artists != null && a.artists!.isNotEmpty)
+              ? a.artists![0]['name']?.toString()
+              : '';
+          return LanguageFilter.isContentAllowed(
+            title: a.title,
+            subtitle: artistSubtitle,
+            allowedLanguages: userLangs,
+            favoriteArtistNames: artistNames,
+          );
+        }).toList();
+
+        if (filteredAlbums.length >= 2) {
+          contentTemp.add(AlbumContent(
+            albumList: filteredAlbums,
+            title: shelfTitle,
+          ));
         }
       }
     }
@@ -231,25 +360,7 @@ class HomeScreenController extends GetxController {
 
   Future<void> changeDiscoverContent(dynamic val, {String? songId}) async {
     QuickPicks? quickPicks_;
-    if (val == 'QP') {
-      final homeContentListMap = await _musicServices.getHome(limit: 3);
-      quickPicks_ = QuickPicks(
-          List<MediaItem>.from(homeContentListMap[0]["contents"]),
-          title: homeContentListMap[0]["title"]);
-    } else if (val == "TMV" || val == 'TR') {
-      try {
-        final charts = await _musicServices.getCharts(val);
-        final index = charts.indexWhere((element) =>
-            element['title'] ==
-            (val == "TMV" ? "Top Music Videos" : "Trending"));
-        quickPicks_ = QuickPicks(
-            List<MediaItem>.from(charts[index]["contents"]),
-            title: charts[index]["title"]);
-      } catch (e) {
-        printERROR(
-            "Seems ${val == "TMV" ? "Top music videos" : "Trending songs"} currently not available!");
-      }
-    } else if (val == "REC") {
+    if (val == "REC" || val == 'QP') {
       try {
         final recService = Get.find<RecommendationService>();
         final recommendations = await recService.getRecommendations();

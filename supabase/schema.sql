@@ -15,9 +15,13 @@ create table if not exists public.playlists (
     name text not null,
     description text,
     cover_url text,
+    spotify_playlist_id text,
     created_at timestamptz not null default timezone('utc'::text, now()),
     updated_at timestamptz not null default timezone('utc'::text, now())
 );
+
+-- Migration for existing databases
+alter table public.playlists add column if not exists spotify_playlist_id text;
 
 -- 2. Playlist Tracks Table
 -- Stores ordered tracks belonging to a playlist.
@@ -90,3 +94,47 @@ drop policy if exists "Users can delete own playlist tracks" on public.playlist_
 create policy "Users can delete own playlist tracks"
     on public.playlist_tracks for delete
     using (auth.uid() = user_id);
+
+-- ==============================================================================
+-- 3. User Preferences Table
+-- ==============================================================================
+-- Stores user onboarding preferences: music languages and favorite artists.
+-- Synchronized with local Hive AppPrefs so preferences follow the user across devices.
+create table if not exists public.user_preferences (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null unique references auth.users(id) on delete cascade,
+    music_languages jsonb default '[]'::jsonb,
+    favorite_artists jsonb default '[]'::jsonb,
+    onboarding_completed boolean not null default false,
+    created_at timestamptz not null default timezone('utc'::text, now()),
+    updated_at timestamptz not null default timezone('utc'::text, now())
+);
+
+create index if not exists idx_user_preferences_user_id on public.user_preferences(user_id);
+
+alter table public.user_preferences enable row level security;
+
+-- ------------------------------------------------------------------------------
+-- RLS Policies for public.user_preferences
+-- ------------------------------------------------------------------------------
+drop policy if exists "Users can view own preferences" on public.user_preferences;
+create policy "Users can view own preferences"
+    on public.user_preferences for select
+    using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own preferences" on public.user_preferences;
+create policy "Users can insert own preferences"
+    on public.user_preferences for insert
+    with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own preferences" on public.user_preferences;
+create policy "Users can update own preferences"
+    on public.user_preferences for update
+    using (auth.uid() = user_id)
+    with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own preferences" on public.user_preferences;
+create policy "Users can delete own preferences"
+    on public.user_preferences for delete
+    using (auth.uid() = user_id);
+

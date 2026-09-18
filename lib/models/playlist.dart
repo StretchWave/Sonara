@@ -28,7 +28,9 @@ class Playlist {
       required this.thumbnailUrl,
       this.songCount,
       this.isPipedPlaylist = false,
-      this.isCloudPlaylist = true});
+      this.isCloudPlaylist = true,
+      this.spotifyPlaylistId,
+      this.lastSpotifySyncedAt});
   final String playlistId;
   String title;
   final bool isPipedPlaylist;
@@ -36,6 +38,17 @@ class Playlist {
   String thumbnailUrl;
   final String? songCount;
   final bool isCloudPlaylist;
+
+  /// The Spotify playlist ID this local playlist is connected to (if any).
+  /// When non-null, the playlist can be incrementally synced with Spotify.
+  final String? spotifyPlaylistId;
+
+  /// Epoch milliseconds of the last successful Spotify sync.
+  final int? lastSpotifySyncedAt;
+
+  /// Whether this playlist is connected to a Spotify playlist.
+  bool get isSpotifyConnected =>
+      spotifyPlaylistId != null && spotifyPlaylistId!.isNotEmpty;
   static const thumbPlaceholderUrl =
       "https://raw.githubusercontent.com/StretchWave/Sonara/refs/heads/main/playlist_placeholder.png";
 
@@ -48,7 +61,9 @@ class Playlist {
       description: json["description"] ?? "Playlist",
       songCount: json['itemCount'],
       isPipedPlaylist: json["isPipedPlaylist"] ?? false,
-      isCloudPlaylist: json["isCloudPlaylist"] ?? true);
+      isCloudPlaylist: json["isCloudPlaylist"] ?? true,
+      spotifyPlaylistId: json["spotifyPlaylistId"] as String?,
+      lastSpotifySyncedAt: (json["lastSpotifySyncedAt"] as num?)?.toInt());
 
   Map<String, dynamic> toJson() => {
         "title": title,
@@ -59,10 +74,17 @@ class Playlist {
         ],
         "itemCount": songCount,
         "isPipedPlaylist": isPipedPlaylist,
-        "isCloudPlaylist": isCloudPlaylist
+        "isCloudPlaylist": isCloudPlaylist,
+        if (spotifyPlaylistId != null) "spotifyPlaylistId": spotifyPlaylistId,
+        if (lastSpotifySyncedAt != null) "lastSpotifySyncedAt": lastSpotifySyncedAt,
       };
 
-  Playlist copyWith({String? title, String? thumbnailUrl}) {
+  Playlist copyWith({
+    String? title,
+    String? thumbnailUrl,
+    String? spotifyPlaylistId,
+    int? lastSpotifySyncedAt,
+  }) {
     return Playlist(
         title: title ?? this.title,
         playlistId: playlistId,
@@ -70,7 +92,9 @@ class Playlist {
         description: description,
         songCount: songCount,
         isPipedPlaylist: isPipedPlaylist,
-        isCloudPlaylist: isCloudPlaylist);
+        isCloudPlaylist: isCloudPlaylist,
+        spotifyPlaylistId: spotifyPlaylistId ?? this.spotifyPlaylistId,
+        lastSpotifySyncedAt: lastSpotifySyncedAt ?? this.lastSpotifySyncedAt);
   }
 
   // Converts this object to a MediaItem object.

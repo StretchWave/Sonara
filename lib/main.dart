@@ -13,15 +13,18 @@ import '/services/downloader.dart';
 import '/services/piped_service.dart';
 import '/services/playback_stats_service.dart';
 import '/services/lastfm_service.dart';
+import '/services/onboarding_controller.dart';
 import '/services/recommendation_service.dart';
 import '/services/supabase/supabase_service.dart';
 import '/services/supabase/playlist_sync_service.dart';
+import '/services/supabase/user_preferences_service.dart';
 import 'utils/app_link_controller.dart';
 import '/services/audio_handler.dart';
 import '/services/music_service.dart';
 import '/ui/home.dart';
 import '/ui/player/player_controller.dart';
 import 'ui/screens/Settings/settings_screen_controller.dart';
+import 'ui/screens/Settings/components/supabase_auth_dialog.dart';
 import '/ui/utils/theme_controller.dart';
 import 'ui/screens/Home/home_screen_controller.dart';
 import 'ui/screens/Library/library_controller.dart';
@@ -132,6 +135,8 @@ Future<void> startApplicationServices() async {
   Get.lazyPut(() => RecommendationService(), fenix: true);
   Get.lazyPut(() => SupabaseService(), fenix: true);
   Get.lazyPut(() => PlaylistSyncService(), fenix: true);
+  Get.lazyPut(() => UserPreferencesService(), fenix: true);
+  Get.lazyPut(() => OnboardingController(), fenix: true);
   if (GetPlatform.isDesktop) {
     Get.lazyPut(() => SearchScreenController(), fenix: true);
     Get.put(DesktopSystemTray());

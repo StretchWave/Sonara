@@ -9,6 +9,7 @@ import '/ui/widgets/songinfo_bottom_sheet.dart';
 import '/utils/helper.dart';
 import '../ui/widgets/loader.dart';
 import '/services/music_service.dart';
+import '/services/supabase/supabase_service.dart';
 import '/ui/player/player_controller.dart';
 import '../ui/navigator.dart';
 import '../ui/widgets/snackbar.dart';
@@ -56,11 +57,22 @@ mixin ProcessLink {
       Navigator.of(Get.context!).pop();
     }
 
-    // Ignore Supabase auth callbacks (handled automatically by Supabase)
+    // Handle Supabase auth callbacks
     if (uri.scheme == "io.supabase.sonara" ||
+        uri.scheme.startsWith("io.supabase") ||
         uri.host == "login-callback" ||
         uri.queryParameters.containsKey("code") ||
-        uri.fragment.contains("access_token")) {
+        uri.fragment.contains("access_token") ||
+        uri.fragment.contains("error_description")) {
+      printINFO("Received Supabase auth deep link: $uri");
+      try {
+        if (Get.isRegistered<SupabaseService>()) {
+          final supabaseService = Get.find<SupabaseService>();
+          await supabaseService.handleAuthDeeplink(uri);
+        }
+      } catch (e) {
+        printERROR("Error processing Supabase auth deep link: $e");
+      }
       return;
     }
 

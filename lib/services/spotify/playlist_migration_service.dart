@@ -45,6 +45,23 @@ class MigrationResult {
   int get total => added + alreadyExists + failed;
 }
 
+/// Result of an incremental Spotify sync operation.
+class SpotifySyncResult {
+  final int added;
+  final int alreadyUpToDate;
+  final int failed;
+  final String? error;
+
+  const SpotifySyncResult({
+    this.added = 0,
+    this.alreadyUpToDate = 0,
+    this.failed = 0,
+    this.error,
+  });
+
+  bool get isUpToDate => added == 0 && failed == 0;
+}
+
 /// Which matches are eligible for a destination action.
 enum ConfidenceFilter {
   high,
@@ -763,17 +780,21 @@ class PlaylistMigrationService {
     String name,
     List<PlaylistMigrationItem> items, {
     String? artworkUrl,
+    String? spotifyPlaylistId,
   }) async {
     final matched = items.where((e) => e.hasMatch).toList();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
     final playlist = Playlist(
       title: name.trim().isEmpty ? 'Spotify Import' : name.trim(),
-      playlistId: 'LIB${DateTime.now().millisecondsSinceEpoch}',
+      playlistId: 'LIB$nowMs',
       thumbnailUrl: artworkUrl ??
           (matched.isNotEmpty
               ? matched.first.matchedTrack!.artUri.toString()
               : Playlist.thumbPlaceholderUrl),
       description: 'Imported from Spotify',
       isCloudPlaylist: false,
+      spotifyPlaylistId: spotifyPlaylistId,
+      lastSpotifySyncedAt: spotifyPlaylistId != null ? nowMs : null,
     );
 
     final metaBox = await Hive.openBox('LibraryPlaylists');
@@ -853,5 +874,93 @@ class PlaylistMigrationService {
       artworkUrl: artworkUrl,
       completed: true,
     );
+  }
+
+  // -------------------------------------------------------------------
+  // Connected Spotify Playlist Sync
+  // -------------------------------------------------------------------
+
+  /// Performs an incremental sync: fetches the live Spotify tracklist,
+  /// diffs against the stored migration, resolves only NEW tracks, and
+  /// appends them to the local playlist.
+  ///
+  /// This is the core method behind the one-tap "Sync with Spotify"
+  /// button on the playlist screen.
+  Future<SpotifySyncResult> syncFromSpotify({
+    required String spotifyPlaylistId,
+    required String localPlaylistId,
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    try {
+      // 1. Fetch the current Spotify tracklist.
+      final resolution = await importSpotifyPlaylist(spotifyPlaylistId);
+      final freshTracks = resolution.tracks;
+      if (freshTracks.isEmpty) {
+        return SpotifySyncResult(
+          error: resolution.message ?? 'Could not fetch Spotify playlist',
+        );
+      }
+
+      // 2. Load the stored migration (from last import/sync).
+      final stored = await loadMigration(spotifyPlaylistId);
+      if (stored == null) {
+        // No previous migration record — this shouldn't happen for a
+        // connected playlist, but handle gracefully by treating all
+        // tracks as "new".
+        return const SpotifySyncResult(
+          error: 'No previous migration record found',
+        );
+      }
+
+      final storedItems = itemsFromStored(stored);
+
+      // 3. Diff: find only the newly added tracks.
+      final analysis = analyzeReimport(storedItems, freshTracks);
+      if (analysis.added.isEmpty) {
+        return const SpotifySyncResult(alreadyUpToDate: 1);
+      }
+
+      // 4. Create migration items for new tracks only.
+      final newItems = analysis.added
+          .map((t) => PlaylistMigrationItem(sourceTrack: t))
+          .toList();
+
+      // 5. Enrich with MusicBrainz ISRCs (cached — typically instant).
+      await enrichWithMusicBrainz(newItems, onProgress: onProgress);
+
+      // 6. Resolve audio streams for the new tracks.
+      await resolveAll(newItems, onProgress: onProgress);
+
+      // 7. Append matched tracks to the local playlist.
+      final localPlaylist = Playlist(
+        title: '',
+        playlistId: localPlaylistId,
+        thumbnailUrl: '',
+        isCloudPlaylist: false,
+      );
+      final result = await addToExistingPlaylist(localPlaylist, newItems);
+
+      // 8. Update the stored migration with the full combined item list
+      //    so the *next* sync only picks up songs added after this one.
+      final allItems = <PlaylistMigrationItem>[
+        ...storedItems,
+        ...newItems,
+      ];
+      await completeMigration(
+        spotifyPlaylistId: spotifyPlaylistId,
+        spotifyPlaylistName:
+            resolution.name ?? stored['name'] as String? ?? 'Spotify Playlist',
+        items: allItems,
+        artworkUrl: resolution.artworkUrl ?? stored['artworkUrl'] as String?,
+      );
+
+      return SpotifySyncResult(
+        added: result.added,
+        alreadyUpToDate: result.alreadyExists,
+        failed: result.failed,
+      );
+    } catch (e) {
+      return SpotifySyncResult(error: e.toString());
+    }
   }
 }

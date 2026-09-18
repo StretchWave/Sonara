@@ -227,6 +227,7 @@ class PlaylistSyncService extends GetxService {
       thumbnailUrl: remoteData['cover_url'] ?? Playlist.thumbPlaceholderUrl,
       isCloudPlaylist: false,
       isPipedPlaylist: false,
+      spotifyPlaylistId: remoteData['spotify_playlist_id'] as String?,
     );
     await libBox.put(playlistId, playlist.toJson());
 
@@ -264,6 +265,7 @@ class PlaylistSyncService extends GetxService {
       'name': playlist.title,
       'description': playlist.description ?? '',
       'cover_url': playlist.thumbnailUrl,
+      'spotify_playlist_id': playlist.spotifyPlaylistId,
       'updated_at': nowIso,
     });
 
@@ -319,6 +321,7 @@ class PlaylistSyncService extends GetxService {
         'name': playlist.title,
         'description': playlist.description ?? '',
         'cover_url': playlist.thumbnailUrl,
+        'spotify_playlist_id': playlist.spotifyPlaylistId,
         'updated_at': nowIso,
       });
       _recordLocalSyncTime(playlist.playlistId);

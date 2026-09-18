@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../../services/onboarding_controller.dart';
+import '../../../../services/supabase/playlist_sync_service.dart';
 import '../../../../services/supabase/supabase_service.dart';
 import '../../../widgets/common_dialog_widget.dart';
 import '../../../widgets/modified_text_field.dart';
 import '../../../widgets/snackbar.dart';
+import '../../Onboarding/onboarding_screen.dart';
 
 enum SupabaseAuthMode { signIn, signUp, magicLink }
 
@@ -22,6 +25,9 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
   SupabaseAuthMode _authMode = SupabaseAuthMode.signIn;
   bool _isPasswordVisible = false;
   String _validationError = '';
+  bool _hasDismissed = false;
+  bool _isGoogleLoading = false;
+  bool _isEmailSubmitting = false;
 
   @override
   void initState() {
@@ -29,26 +35,66 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
     // Auto-dismiss dialog if OAuth login completes while dialog is visible
     ever(_supabaseService.isLoggedIn, (bool loggedIn) {
       if (loggedIn && mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          snackbar(context, "Signed in successfully!", size: SanckBarSize.BIG),
-        );
+        _onSuccessfulAuth("Signed in successfully!");
       }
     });
+  }
+
+  void _onSuccessfulAuth(String message) async {
+    if (_hasDismissed) return;
+    _hasDismissed = true;
+
+    if (mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        snackbar(context, message, size: SanckBarSize.BIG),
+      );
+    }
+
+    // Sync existing local playlists to cloud
+    try {
+      final syncService = Get.find<PlaylistSyncService>();
+      syncService.syncAll();
+    } catch (_) {}
+
+    // Check if onboarding preferences are missing and resume
+    try {
+      final onboarding = Get.find<OnboardingController>();
+      final needsOnboarding = await onboarding.resumeOnboardingAfterLateLogin();
+      if (needsOnboarding) {
+        Get.to(() => OnboardingScreen(
+              onComplete: () {
+                Get.back();
+              },
+            ));
+      }
+    } catch (_) {}
   }
 
   void _loginWithGoogle() async {
     setState(() {
       _validationError = '';
+      _isGoogleLoading = true;
     });
     final success = await _supabaseService.signInWithGoogle();
     if (!mounted) return;
     if (success && _supabaseService.isLoggedIn.value) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        snackbar(context, "Signed in with Google successfully!",
-            size: SanckBarSize.BIG),
-      );
+      _onSuccessfulAuth("Signed in with Google successfully!");
+    } else if (!success) {
+      setState(() {
+        _isGoogleLoading = false;
+        _validationError = _supabaseService.authErrorMessage.value;
+      });
+    } else {
+      // Browser opened for OAuth; wait for redirect callback.
+      // Reset local loading flag after 30s so user can retry if they closed browser.
+      Future.delayed(const Duration(seconds: 30), () {
+        if (mounted && !_hasDismissed) {
+          setState(() {
+            _isGoogleLoading = false;
+          });
+        }
+      });
     }
   }
 
@@ -56,6 +102,7 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _supabaseService.cancelAuthentication();
     super.dispose();
   }
 
@@ -83,33 +130,48 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
       }
     }
 
+    setState(() {
+      _isEmailSubmitting = true;
+    });
+
     bool success = false;
-    if (_authMode == SupabaseAuthMode.signIn) {
-      success = await _supabaseService.signInWithPassword(
-        email: email,
-        password: password,
-      );
-    } else if (_authMode == SupabaseAuthMode.signUp) {
-      success = await _supabaseService.signUpWithPassword(
-        email: email,
-        password: password,
-      );
-    } else if (_authMode == SupabaseAuthMode.magicLink) {
-      success = await _supabaseService.sendMagicLink(email: email);
+    try {
+      if (_authMode == SupabaseAuthMode.signIn) {
+        success = await _supabaseService.signInWithPassword(
+          email: email,
+          password: password,
+        );
+      } else if (_authMode == SupabaseAuthMode.signUp) {
+        success = await _supabaseService.signUpWithPassword(
+          email: email,
+          password: password,
+        );
+      } else if (_authMode == SupabaseAuthMode.magicLink) {
+        success = await _supabaseService.sendMagicLink(email: email);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEmailSubmitting = false;
+        });
+      }
     }
 
     if (!mounted) return;
 
     if (success) {
-      Navigator.of(context).pop();
-      final msg = _authMode == SupabaseAuthMode.magicLink
-          ? 'Magic link sent! Please check your email.'
-          : _authMode == SupabaseAuthMode.signUp
-              ? 'Account created successfully!'
-              : 'Signed in successfully!';
-      ScaffoldMessenger.of(context).showSnackBar(
-        snackbar(context, msg, size: SanckBarSize.BIG),
-      );
+      if (_authMode == SupabaseAuthMode.magicLink) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          snackbar(context, 'Magic link sent! Please check your email.',
+              size: SanckBarSize.BIG),
+        );
+      } else {
+        final msg = _authMode == SupabaseAuthMode.signUp
+            ? 'Account created successfully!'
+            : 'Signed in successfully!';
+        _onSuccessfulAuth(msg);
+      }
     }
   }
 
@@ -146,55 +208,62 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
               const SizedBox(height: 16),
 
               // Continue with Google Button
-              Obx(() {
-                final isLoading = _supabaseService.isAuthenticating.value;
-                return OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: Theme.of(context).primaryColorLight,
-                    side: BorderSide(
-                      color: Theme.of(context)
-                          .dividerColor
-                          .withValues(alpha: 0.3),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColorLight,
+                  side: BorderSide(
+                    color: Theme.of(context)
+                        .dividerColor
+                        .withValues(alpha: 0.3),
                   ),
-                  onPressed: isLoading ? null : _loginWithGoogle,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: (_isGoogleLoading || _isEmailSubmitting)
+                    ? null
+                    : _loginWithGoogle,
+                child: _isGoogleLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
                         ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          "G",
-                          style: TextStyle(
-                            color: Color(0xFF4285F4),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 15,
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              "G",
+                              style: TextStyle(
+                                color: Color(0xFF4285F4),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          Text(
+                            "Continue with Google",
+                            style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Text(
-                        "Continue with Google",
-                        style: TextStyle(
-                          color: textColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
+              ),
 
               const SizedBox(height: 14),
 
@@ -326,43 +395,45 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
               const SizedBox(height: 8),
 
               // Submit Button
-              Obx(() {
-                final isLoading = _supabaseService.isAuthenticating.value;
-                return ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  onPressed: isLoading ? null : _submit,
-                  child: isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(
-                          _authMode == SupabaseAuthMode.signIn
-                              ? "Sign In"
-                              : _authMode == SupabaseAuthMode.signUp
-                                  ? "Create Account"
-                                  : "Send Magic Link",
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: (_isGoogleLoading || _isEmailSubmitting)
+                    ? null
+                    : _submit,
+                child: _isEmailSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
                         ),
-                );
-              }),
+                      )
+                    : Text(
+                        _authMode == SupabaseAuthMode.signIn
+                            ? "Sign In"
+                            : _authMode == SupabaseAuthMode.signUp
+                                ? "Create Account"
+                                : "Send Magic Link",
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+              ),
 
               const SizedBox(height: 10),
               Center(
                 child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () {
+                    _supabaseService.cancelAuthentication();
+                    Navigator.of(context).pop();
+                  },
                   child: Text(
                     "Cancel",
                     style: TextStyle(color: textColor, fontSize: 13),

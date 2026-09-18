@@ -26,11 +26,54 @@ class SupabaseService extends GetxService {
     try {
       _client = Supabase.instance.client;
       _updateUserFromSession(_client?.auth.currentSession);
-      _authSubscription = _client?.auth.onAuthStateChange.listen((data) {
-        _updateUserFromSession(data.session);
-      });
+      _authSubscription = _client?.auth.onAuthStateChange.listen(
+        (data) {
+          _updateUserFromSession(data.session);
+        },
+        onError: (error, stackTrace) {
+          printERROR("Supabase auth stream error: $error");
+          isAuthenticating.value = false;
+          authErrorMessage.value =
+              error is AuthException ? error.message : error.toString();
+        },
+      );
     } catch (e) {
       printERROR("SupabaseService initialization failed: $e");
+    }
+  }
+
+  /// Resets authenticating state and error message (e.g. on dialog cancel/dismiss).
+  void cancelAuthentication() {
+    isAuthenticating.value = false;
+    authErrorMessage.value = '';
+  }
+
+  /// Handles incoming OAuth deep links from Android/iOS.
+  Future<void> handleAuthDeeplink(Uri uri) async {
+    try {
+      printINFO("SupabaseService handling auth deep link: $uri");
+      isAuthenticating.value = true;
+      authErrorMessage.value = '';
+
+      if (_client?.auth.currentSession != null) {
+        _updateUserFromSession(_client?.auth.currentSession);
+        return;
+      }
+
+      final res = await _client?.auth.getSessionFromUrl(uri);
+      if (res?.session != null) {
+        _updateUserFromSession(res!.session);
+      } else {
+        _updateUserFromSession(_client?.auth.currentSession);
+      }
+    } on AuthException catch (e) {
+      printERROR("Supabase AuthException from deep link: ${e.message}");
+      authErrorMessage.value = e.message;
+    } catch (e) {
+      printERROR("Supabase deep link error: $e");
+      authErrorMessage.value = e.toString();
+    } finally {
+      isAuthenticating.value = false;
     }
   }
 
@@ -39,6 +82,8 @@ class SupabaseService extends GetxService {
       isLoggedIn.value = true;
       userEmail.value = session.user.email ?? '';
       userId.value = session.user.id;
+      isAuthenticating.value = false;
+      authErrorMessage.value = '';
     } else {
       isLoggedIn.value = false;
       userEmail.value = '';
@@ -177,6 +222,14 @@ class SupabaseService extends GetxService {
         isAuthenticating.value = false;
         return false;
       }
+
+      // Safety timeout: if OAuth callback is never received (e.g. user closed browser),
+      // reset authenticating flag after 90 seconds so UI does not stay frozen.
+      Future.delayed(const Duration(seconds: 90), () {
+        if (isAuthenticating.value && !isLoggedIn.value) {
+          isAuthenticating.value = false;
+        }
+      });
 
       return true;
     } on AuthException catch (e) {

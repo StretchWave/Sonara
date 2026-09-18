@@ -18,6 +18,8 @@ import '../../../models/media_Item_builder.dart';
 import '../../../models/playlist.dart';
 import '../../../services/music_service.dart';
 import '../../../services/piped_service.dart';
+import '../../../services/spotify/playlist_migration_item.dart';
+import '../../../services/spotify/playlist_migration_service.dart';
 import '../Home/home_screen_controller.dart';
 import '../Library/library_controller.dart';
 import '../../../services/supabase/playlist_sync_service.dart';
@@ -38,6 +40,10 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
   // Add this RxBool to track export progress
   final isExporting = false.obs;
   final exportProgress = 0.0.obs;
+
+  // Spotify sync state
+  final isSpotifySyncing = false.obs;
+  final spotifySyncResult = Rxn<String>();
 
   String generatedYtmPlaylistUrl = '';
 
@@ -696,5 +702,157 @@ class PlaylistScreenController extends PlaylistAlbumScreenControllerBase
       ),
       barrierDismissible: false,
     );
+  }
+
+  // -------------------------------------------------------------------
+  // Connected Spotify Playlist Sync
+  // -------------------------------------------------------------------
+
+  /// Runs an incremental sync from the connected Spotify playlist.
+  /// Fetches only new songs, resolves their audio, and appends them.
+  Future<void> syncWithSpotify() async {
+    final spotifyId = playlist.value.spotifyPlaylistId;
+    if (spotifyId == null || spotifyId.isEmpty) return;
+
+    isSpotifySyncing.value = true;
+    spotifySyncResult.value = null;
+    try {
+      final migrationService = PlaylistMigrationService();
+      final result = await migrationService.syncFromSpotify(
+        spotifyPlaylistId: spotifyId,
+        localPlaylistId: playlist.value.playlistId,
+      );
+
+      if (result.error != null) {
+        spotifySyncResult.value = 'Sync failed: ${result.error}';
+        return;
+      }
+
+      // Refresh the track list from Hive.
+      fetchSongsfromDatabase(playlist.value.playlistId);
+
+      // Update the sync timestamp on the playlist metadata.
+      final box = await Hive.openBox('LibraryPlaylists');
+      final raw = box.get(playlist.value.playlistId);
+      if (raw is Map) {
+        final json = Map<dynamic, dynamic>.from(raw);
+        json['lastSpotifySyncedAt'] = DateTime.now().millisecondsSinceEpoch;
+        await box.put(playlist.value.playlistId, json);
+        // Refresh the in-memory playlist so the badge shows the new timestamp.
+        playlist.value = Playlist.fromJson(json);
+      }
+      await box.close();
+
+      // Cloud sync the updated tracks.
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>()
+            .syncTracks(playlist.value.playlistId, songList.toList());
+      }
+
+      if (result.added > 0) {
+        spotifySyncResult.value =
+            'Added ${result.added} new song${result.added > 1 ? 's' : ''} from Spotify';
+      } else {
+        spotifySyncResult.value = 'Already up to date with Spotify';
+      }
+    } catch (e) {
+      spotifySyncResult.value = 'Sync failed: $e';
+    } finally {
+      isSpotifySyncing.value = false;
+    }
+  }
+
+  /// Connects a Spotify playlist to this local playlist by pasting
+  /// a Spotify URL. Runs the initial import and saves the connection.
+  Future<String?> connectSpotifyPlaylist(String urlOrId) async {
+    try {
+      final migrationService = PlaylistMigrationService();
+      // Extract the Spotify playlist ID from the URL.
+      final spotifyId = urlOrId.contains('spotify.com')
+          ? RegExp(r'playlist/([a-zA-Z0-9]+)').firstMatch(urlOrId)?.group(1)
+          : urlOrId.trim();
+      if (spotifyId == null || spotifyId.isEmpty) {
+        return 'Invalid Spotify playlist URL';
+      }
+
+      isSpotifySyncing.value = true;
+
+      // Import the full Spotify playlist to build the migration record.
+      final resolution =
+          await migrationService.importSpotifyPlaylist(spotifyId);
+      if (resolution.tracks.isEmpty) {
+        return resolution.message ?? 'Could not fetch Spotify playlist';
+      }
+
+      // Build migration items and resolve them.
+      final items = resolution.tracks
+          .map((t) => PlaylistMigrationItem(sourceTrack: t))
+          .toList();
+      await migrationService.enrichWithMusicBrainz(items);
+      await migrationService.resolveAll(items);
+
+      // Append only new tracks to the local playlist.
+      final result = await migrationService.addToExistingPlaylist(
+          playlist.value, items);
+
+      // Save the migration record.
+      await migrationService.completeMigration(
+        spotifyPlaylistId: spotifyId,
+        spotifyPlaylistName: resolution.name ?? 'Spotify Playlist',
+        items: items,
+        artworkUrl: resolution.artworkUrl,
+      );
+
+      // Save the connection on the playlist metadata.
+      final box = await Hive.openBox('LibraryPlaylists');
+      final raw = box.get(playlist.value.playlistId);
+      if (raw is Map) {
+        final json = Map<dynamic, dynamic>.from(raw);
+        json['spotifyPlaylistId'] = spotifyId;
+        json['lastSpotifySyncedAt'] = DateTime.now().millisecondsSinceEpoch;
+        await box.put(playlist.value.playlistId, json);
+        playlist.value = Playlist.fromJson(json);
+      }
+      await box.close();
+
+      // Refresh tracks.
+      fetchSongsfromDatabase(playlist.value.playlistId);
+
+      // Cloud sync the updated metadata and tracks.
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        final syncService = Get.find<PlaylistSyncService>();
+        syncService.updatePlaylistMetadata(playlist.value);
+        syncService.syncTracks(playlist.value.playlistId, songList.toList());
+      }
+
+      if (result.added > 0) {
+        return 'Connected! Added ${result.added} song${result.added > 1 ? 's' : ''}';
+      }
+      return 'Connected to Spotify playlist';
+    } catch (e) {
+      return 'Failed to connect: $e';
+    } finally {
+      isSpotifySyncing.value = false;
+    }
+  }
+
+  /// Removes the Spotify connection from this playlist.
+  /// Local songs are NOT affected.
+  Future<void> disconnectSpotifyPlaylist() async {
+    final box = await Hive.openBox('LibraryPlaylists');
+    final raw = box.get(playlist.value.playlistId);
+    if (raw is Map) {
+      final json = Map<dynamic, dynamic>.from(raw);
+      json.remove('spotifyPlaylistId');
+      json.remove('lastSpotifySyncedAt');
+      await box.put(playlist.value.playlistId, json);
+      playlist.value = Playlist.fromJson(json);
+    }
+    await box.close();
+
+    // Cloud sync the metadata update.
+    if (Get.isRegistered<PlaylistSyncService>()) {
+      Get.find<PlaylistSyncService>().updatePlaylistMetadata(playlist.value);
+    }
   }
 }

@@ -179,7 +179,10 @@ class PlaylistScreen extends StatelessWidget {
                                     barrierColor:
                                         Colors.transparent.withAlpha(100),
                                     builder: (context) => SizedBox(
-                                      height: 140,
+                                      height: playlistController
+                                              .playlist.value.isSpotifyConnected
+                                          ? 200
+                                          : 200,
                                       child: Column(
                                         children: [
                                           ListTile(
@@ -199,6 +202,44 @@ class PlaylistScreen extends StatelessWidget {
                                               );
                                             },
                                           ),
+                                          // Spotify connect / disconnect
+                                          if (playlistController
+                                              .playlist.value.isSpotifyConnected)
+                                            ListTile(
+                                              leading: const Icon(Icons.link_off),
+                                              title: const Text('Disconnect Spotify'),
+                                              onTap: () {
+                                                Navigator.of(context).pop();
+                                                playlistController
+                                                    .disconnectSpotifyPlaylist()
+                                                    .then((_) {
+                                                  if (Get.context != null) {
+                                                    ScaffoldMessenger.of(
+                                                            Get.context!)
+                                                        .showSnackBar(snackbar(
+                                                            Get.context!,
+                                                            'Spotify disconnected',
+                                                            size: SanckBarSize
+                                                                .MEDIUM));
+                                                  }
+                                                });
+                                              },
+                                            )
+                                          else
+                                            ListTile(
+                                              leading: const Icon(Icons.link),
+                                              title:
+                                                  const Text('Connect Spotify Playlist'),
+                                              onTap: () {
+                                                Navigator.of(context).pop();
+                                                _showConnectSpotifyDialog(
+                                                    Get.find<PlayerController>()
+                                                        .homeScaffoldkey
+                                                        .currentState!
+                                                        .context,
+                                                    playlistController);
+                                              },
+                                            ),
                                           ListTile(
                                             leading: const Icon(Icons.delete),
                                             title: Text("removePlaylist".tr),
@@ -476,6 +517,51 @@ class PlaylistScreen extends StatelessWidget {
                                                 },
                                                 icon:
                                                     const Icon(Icons.cloud_sync)),
+                                          // Spotify Sync button — only for connected playlists
+                                          Obx(() {
+                                            if (!playlistController
+                                                .playlist.value.isSpotifyConnected) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            return IconButton(
+                                              tooltip: 'Sync with Spotify',
+                                              onPressed: playlistController
+                                                      .isSpotifySyncing.value
+                                                  ? null
+                                                  : () {
+                                                      playlistController
+                                                          .syncWithSpotify()
+                                                          .then((_) {
+                                                        final msg =
+                                                            playlistController
+                                                                .spotifySyncResult
+                                                                .value;
+                                                        if (msg != null &&
+                                                            context.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                                  context)
+                                                              .showSnackBar(
+                                                                  snackbar(
+                                                                      context,
+                                                                      msg,
+                                                                      size: SanckBarSize
+                                                                          .MEDIUM));
+                                                        }
+                                                      });
+                                                    },
+                                              icon: playlistController
+                                                      .isSpotifySyncing.value
+                                                  ? const SizedBox(
+                                                      width: 20,
+                                                      height: 20,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                              strokeWidth: 2))
+                                                  : const Icon(Icons.sync,
+                                                      color:
+                                                          Color(0xFF1DB954)),
+                                            );
+                                          }),
                                           if (playlistController
                                               .playlist.value.isPipedPlaylist)
                                             IconButton(
@@ -623,6 +709,63 @@ class PlaylistScreen extends StatelessWidget {
                                             ),
                                           ),
                                         ),
+                                        // Spotify connection badge
+                                        Obx(() {
+                                          if (!playlistController
+                                              .playlist.value.isSpotifyConnected) {
+                                            return const SizedBox.shrink();
+                                          }
+                                          final syncedAt = playlistController
+                                              .playlist.value.lastSpotifySyncedAt;
+                                          String syncInfo = 'Connected to Spotify';
+                                          if (syncedAt != null) {
+                                            final ago = DateTime.now().difference(
+                                                DateTime.fromMillisecondsSinceEpoch(
+                                                    syncedAt));
+                                            if (ago.inMinutes < 1) {
+                                              syncInfo += ' · Synced just now';
+                                            } else if (ago.inHours < 1) {
+                                              syncInfo +=
+                                                  ' · Synced ${ago.inMinutes}m ago';
+                                            } else if (ago.inDays < 1) {
+                                              syncInfo +=
+                                                  ' · Synced ${ago.inHours}h ago';
+                                            } else {
+                                              syncInfo +=
+                                                  ' · Synced ${ago.inDays}d ago';
+                                            }
+                                          }
+                                          return Padding(
+                                            padding:
+                                                const EdgeInsets.only(top: 4.0),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  width: 8,
+                                                  height: 8,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                    color: Color(0xFF1DB954),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  syncInfo,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: const Color(
+                                                            0xFF1DB954),
+                                                        fontSize: 11,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
                                       ],
                                     ),
                                   ),
@@ -754,5 +897,74 @@ class PlaylistScreen extends StatelessWidget {
       barrierColor: Colors.transparent.withAlpha(100),
       builder: (context) => SongInfoBottomSheet(song),
     ).whenComplete(() => Get.delete<SongInfoController>());
+  }
+
+  void _showConnectSpotifyDialog(
+      BuildContext context, PlaylistScreenController controller) {
+    final textController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).cardColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        title: const Text('Connect Spotify Playlist'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Paste a Spotify playlist URL to link it to this playlist. '
+              'New songs added to the Spotify playlist can then be synced with one tap.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: textController,
+              decoration: InputDecoration(
+                hintText: 'https://open.spotify.com/playlist/...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                prefixIcon: const Icon(Icons.link,
+                    color: Color(0xFF1DB954)),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Cancel',
+                style: TextStyle(
+                    color: Theme.of(ctx).textTheme.bodyMedium?.color)),
+          ),
+          Obx(() => TextButton(
+                onPressed: controller.isSpotifySyncing.value
+                    ? null
+                    : () {
+                        final url = textController.text.trim();
+                        if (url.isEmpty) return;
+                        Navigator.of(ctx).pop();
+                        controller.connectSpotifyPlaylist(url).then((msg) {
+                          if (msg != null && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                snackbar(context, msg,
+                                    size: SanckBarSize.MEDIUM));
+                          }
+                        });
+                      },
+                child: controller.isSpotifySyncing.value
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Connect',
+                        style: TextStyle(color: Color(0xFF1DB954))),
+              )),
+        ],
+      ),
+    );
   }
 }

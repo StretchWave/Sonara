@@ -32,13 +32,26 @@ Future<void> _probeUrl(String url, {Map<String, String>? headers}) async {
           .timeout(const Duration(seconds: 10));
       final head = bytes.take(16).toList();
       final hex = head.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-      print('    HTTP ${res.statusCode} got=${bytes.length}B magic=[$hex] '
+      print('    Start: HTTP ${res.statusCode} got=${bytes.length}B magic=[$hex] '
           'content-type=${res.headers.value('content-type')}');
+      expect(res.statusCode, equals(206));
+
+      // Test Range > 1MB (proves URL is not range-gated like iOS URLs)
+      final req2 = await client.getUrl(Uri.parse(url));
+      headers?.forEach((k, v) => req2.headers.set(k, v));
+      req2.headers.set('Range', 'bytes=1048576-1052671');
+      final res2 = await req2.close().timeout(const Duration(seconds: 15));
+      final bytes2 = await res2
+          .fold<List<int>>([], (acc, chunk) => acc..addAll(chunk))
+          .timeout(const Duration(seconds: 10));
+      print('    Past 1MB: HTTP ${res2.statusCode} got=${bytes2.length}B');
+      expect(res2.statusCode, equals(206));
     } finally {
       client.close();
     }
   } catch (e) {
     print('    PROBE ERROR: $e');
+    rethrow;
   }
 }
 

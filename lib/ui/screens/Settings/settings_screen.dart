@@ -12,6 +12,7 @@ import '../../widgets/restore_dialog.dart';
 import '../Spotify/spotify_import_screen.dart';
 import '../Statistics/statistics_screen.dart';
 import 'components/lastfm_settings.dart';
+import 'components/music_preferences_tile.dart';
 import '/services/lastfm_service.dart';
 import '../Library/library_controller.dart';
 import '../../widgets/snackbar.dart';
@@ -95,6 +96,7 @@ class SettingsScreen extends StatelessWidget {
                 title: "personalisation".tr,
                 icon: Icons.palette,
                 children: [
+                  const MusicPreferencesTile(),
                   ListTile(
                     contentPadding: const EdgeInsets.only(left: 5, right: 10),
                     title: Text("themeMode".tr),
@@ -264,20 +266,9 @@ class SettingsScreen extends StatelessWidget {
                       contentPadding: const EdgeInsets.only(left: 5, right: 10),
                       title: Text("setDiscoverContent".tr),
                       subtitle: Obx(() => Text(
-                          settingsController.discoverContentType.value == "QP"
-                              ? "quickpicks".tr
-                              : settingsController.discoverContentType.value ==
-                                      "TMV"
-                                  ? "topmusicvideos".tr
-                                  : settingsController
-                                              .discoverContentType.value ==
-                                          "TR"
-                                      ? "trending".tr
-                                      : settingsController
-                                                  .discoverContentType.value ==
-                                              "REC"
-                                          ? "basedOnLikes".tr
-                                          : "basedOnLast".tr,
+                          settingsController.discoverContentType.value == "BOLI"
+                              ? "basedOnLast".tr
+                              : "basedOnLikes".tr,
                           style: Theme.of(context).textTheme.bodyMedium)),
                       onTap: () => showDialog(
                         context: context,
@@ -997,8 +988,7 @@ class DiscoverContentSelectorDialog extends StatelessWidget {
     final settingsController = Get.find<SettingsScreenController>();
     return CommonDialog(
       child: Container(
-        height: 300,
-        //color: Theme.of(context).cardColor,
+        height: 220,
         padding: const EdgeInsets.only(top: 30, left: 5, right: 30, bottom: 10),
         child: Column(children: [
           Padding(
@@ -1012,30 +1002,18 @@ class DiscoverContentSelectorDialog extends StatelessWidget {
             ),
           ),
           SizedBox(
-            height: 180,
+            height: 110,
             child: SingleChildScrollView(
               child: Column(
                 children: [
                   radioWidget(
-                      label: "quickpicks".tr,
+                      label: "basedOnLikes".tr,
                       controller: settingsController,
-                      value: "QP"),
-                  radioWidget(
-                      label: "topmusicvideos".tr,
-                      controller: settingsController,
-                      value: "TMV"),
-                  radioWidget(
-                      label: "trending".tr,
-                      controller: settingsController,
-                      value: "TR"),
+                      value: "REC"),
                   radioWidget(
                       label: "basedOnLast".tr,
                       controller: settingsController,
                       value: "BOLI"),
-                  radioWidget(
-                      label: "basedOnLikes".tr,
-                      controller: settingsController,
-                      value: "REC"),
                 ],
               ),
             ),

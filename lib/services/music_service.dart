@@ -38,7 +38,7 @@ class MusicServices extends getx.GetxService {
     'Referer': 'https://music.youtube.com/',
     'X-YouTube-Device': 'ONEPLUS_A6013',
     'origin': domain,
-    'cookie': 'CONSENT=YES+1',
+    'cookie': 'CONSENT=YES+1; PREF=gl=US&hl=en',
   };
 
   final Map<String, dynamic> _context = {
@@ -46,6 +46,8 @@ class MusicServices extends getx.GetxService {
       'client': {
         "clientName": "WEB_REMIX",
         "clientVersion": clientVersion,
+        "gl": "US",
+        "hl": "en",
       },
       'user': {}
     }
@@ -72,30 +74,32 @@ class MusicServices extends getx.GetxService {
     if (appPrefsBox.containsKey('visitorId')) {
       final visitorData = appPrefsBox.get("visitorId");
       if (visitorData != null && !isExpired(epoch: visitorData['exp'])) {
-        visitorId = visitorData['id'];
-        appPrefsBox.put("visitorId", {
-          'id': visitorId,
-          'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2590200
-        });
-        printINFO("Got Visitor id ($visitorId) from Box");
+        final existingId = visitorData['id']?.toString() ?? '';
+        if (existingId.isNotEmpty) {
+          visitorId = existingId;
+          appPrefsBox.put("visitorId", {
+            'id': visitorId,
+            'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2590200
+          });
+          printINFO("Got Visitor id ($visitorId) from Box");
+        }
       }
     }
-    if (visitorId == null) {
+    if (visitorId == null || visitorId.isEmpty) {
       visitorId = await genrateVisitorId();
-      if (visitorId != null) {
+      if (visitorId != null && visitorId.isNotEmpty) {
         printINFO("New Visitor id generated ($visitorId)");
         appPrefsBox.put("visitorId", {
           'id': visitorId,
           'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2592000
         });
-      } else {
-        // not able to generate in that case
-        visitorId = "CgttN24wcmd5UzNSWSi2lvq2BjIKCgJKUBIEGgAgYQ%3D%3D";
       }
     }
-    _headers['X-Goog-Visitor-Id'] = visitorId;
-    // Also send it inside the client context (browse personalization)
-    _context['context']['client']['visitorData'] = visitorId;
+    if (visitorId != null && visitorId.isNotEmpty) {
+      _headers['X-Goog-Visitor-Id'] = visitorId;
+      // Also send it inside the client context (browse personalization)
+      _context['context']['client']['visitorData'] = visitorId;
+    }
   }
 
   set hlCode(String code) {
@@ -112,6 +116,13 @@ class MusicServices extends getx.GetxService {
       if (matches != null) {
         final ytcfg = json.decode(matches.group(1).toString());
         visitorId = ytcfg['VISITOR_DATA']?.toString();
+      }
+      if (visitorId == null || visitorId.isEmpty) {
+        final m2 = RegExp(r'"VISITOR_DATA"\s*:\s*"([^"]+)"')
+            .firstMatch(response.data.toString());
+        if (m2 != null) {
+          visitorId = m2.group(1);
+        }
       }
       return visitorId;
     } catch (e) {

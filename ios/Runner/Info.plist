@@ -56,5 +56,17 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.sonara</string>
+				<string>io.supabase.wycltgbzbhvnfavwxgpm</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -152,6 +152,11 @@ class StreamCache {
     Duration? ttl,
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    // Never cache range-gated iOS streams that return 403 past 1MB
+    if (_containsRangeGatedUrl(data)) {
+      return;
+    }
+
     final calculatedTtlMs = ttl?.inMilliseconds ?? _detectTtlMs(data);
     final expiresAt = now + calculatedTtlMs;
 
@@ -198,13 +203,13 @@ class StreamCache {
     }
   }
 
-  /// Purges all expired entries from cache.
+  /// Purges all expired or poisoned entries from cache.
   void purgeExpired() {
     final toDelete = <dynamic>[];
     for (final key in box.keys) {
       final raw = box.get(key);
       final entry = _parseEntry(raw);
-      if (entry != null && entry.isExpired) {
+      if (entry == null || entry.isExpired) {
         toDelete.add(key);
       }
     }
@@ -216,18 +221,42 @@ class StreamCache {
   CachedStreamEntry? _parseEntry(dynamic raw) {
     if (raw == null) return null;
     if (raw is Map) {
+      CachedStreamEntry? entry;
       if (raw.containsKey('schemaVersion') && raw.containsKey('data')) {
-        return CachedStreamEntry.fromJson(raw);
+        entry = CachedStreamEntry.fromJson(raw);
+      } else {
+        // Legacy unversioned entry
+        entry = CachedStreamEntry(
+          data: raw.map((k, v) => MapEntry(k.toString(), v)),
+          providerId: raw['providerId']?.toString() ?? '',
+          cachedAtMs: DateTime.now().millisecondsSinceEpoch,
+          expiresAtMs: DateTime.now().millisecondsSinceEpoch + defaultStreamTtlMs,
+        );
       }
-      // Legacy unversioned entry
-      return CachedStreamEntry(
-        data: raw.map((k, v) => MapEntry(k.toString(), v)),
-        providerId: raw['providerId']?.toString() ?? '',
-        cachedAtMs: DateTime.now().millisecondsSinceEpoch,
-        expiresAtMs: DateTime.now().millisecondsSinceEpoch + defaultStreamTtlMs,
-      );
+      // Poisoned range-gated iOS URLs fail past 1MB with 403 Forbidden.
+      // Discard so full unthrottled VISIONOS streams are resolved.
+      if (_containsRangeGatedUrl(entry.data)) {
+        return null;
+      }
+      return entry;
     }
     return null;
+  }
+
+  static bool _containsRangeGatedUrl(Map<String, dynamic> data) {
+    bool isGated(dynamic u) =>
+        u is String && (u.contains('c=IOS') || u.contains('c=ios'));
+    final low = data['lowQualityAudio'];
+    if (low is Map && isGated(low['url'])) return true;
+    final high = data['highQualityAudio'];
+    if (high is Map && isGated(high['url'])) return true;
+    final formats = data['audioFormats'];
+    if (formats is List) {
+      for (final f in formats) {
+        if (f is Map && isGated(f['url'])) return true;
+      }
+    }
+    return false;
   }
 
   int _detectTtlMs(Map<String, dynamic> data) {
