@@ -7,6 +7,18 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
+    companion object {
+        private val MEDIA_KEYCODES = setOf(
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_MEDIA_STOP,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE
+        )
+    }
+
     private val channelName = "com.sonara.music/inputControl"
     private var methodChannel: MethodChannel? = null
 
@@ -39,36 +51,20 @@ class MainActivity : AudioServiceActivity() {
     /**
      * Requirement 3: Wired foreground key events.
      * When toggle is off, explicitly pass through unhandled media keycodes
-     * via super.dispatchKeyEvent(event) rather than consuming them.
-     * This also ensures the app does not intercept when invisible to routing.
+     * by returning false (unconsumed) rather than consuming them.
+     * This ensures the app does not intercept when invisible to routing.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val isMediaKey = event.keyCode in setOf(
-            KeyEvent.KEYCODE_HEADSETHOOK,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_NEXT,
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-            KeyEvent.KEYCODE_MEDIA_STOP,
-            KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE
-        )
-        if (isMediaKey && !InputControlManager.isEnabled) {
+        if (event.keyCode in MEDIA_KEYCODES && !InputControlManager.isEnabled) {
             // Pass through — do not consume; let system route to next eligible session
-            return super.dispatchKeyEvent(event)
+            return false
         }
         return super.dispatchKeyEvent(event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val isMediaKey = keyCode in setOf(
-            KeyEvent.KEYCODE_HEADSETHOOK,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_MEDIA_NEXT,
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-            KeyEvent.KEYCODE_MEDIA_STOP
-        )
-        if (isMediaKey && !InputControlManager.isEnabled) {
-            return super.onKeyDown(keyCode, event)
+        if (keyCode in MEDIA_KEYCODES && !InputControlManager.isEnabled) {
+            return false
         }
         return super.onKeyDown(keyCode, event)
     }

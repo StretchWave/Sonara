@@ -182,6 +182,17 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           : [],
       systemActions: enabled ? const {MediaAction.seek} : const {},
       androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
+      processingState: enabled
+          ? (isSongLoading
+              ? AudioProcessingState.loading
+              : const {
+                  ProcessingState.idle: AudioProcessingState.idle,
+                  ProcessingState.loading: AudioProcessingState.loading,
+                  ProcessingState.buffering: AudioProcessingState.buffering,
+                  ProcessingState.ready: AudioProcessingState.ready,
+                  ProcessingState.completed: AudioProcessingState.completed,
+                }[_player.processingState]!)
+          : AudioProcessingState.idle,
     ));
   }
 
@@ -232,15 +243,17 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
               }
             : const {},
         androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
-        processingState: isSongLoading
-            ? AudioProcessingState.loading
-            : const {
-                ProcessingState.idle: AudioProcessingState.idle,
-                ProcessingState.loading: AudioProcessingState.loading,
-                ProcessingState.buffering: AudioProcessingState.buffering,
-                ProcessingState.ready: AudioProcessingState.ready,
-                ProcessingState.completed: AudioProcessingState.completed,
-              }[_player.processingState]!,
+        processingState: !enabled
+            ? AudioProcessingState.idle
+            : isSongLoading
+                ? AudioProcessingState.loading
+                : const {
+                    ProcessingState.idle: AudioProcessingState.idle,
+                    ProcessingState.loading: AudioProcessingState.loading,
+                    ProcessingState.buffering: AudioProcessingState.buffering,
+                    ProcessingState.ready: AudioProcessingState.ready,
+                    ProcessingState.completed: AudioProcessingState.completed,
+                  }[_player.processingState]!,
         repeatMode: const {
           LoopMode.off: AudioServiceRepeatMode.none,
           LoopMode.one: AudioServiceRepeatMode.one,
@@ -702,8 +715,10 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
                 _resolveProviderForSong(currentSong, forceProviderId));
         final bool restoreSession = extras['restoreSession'] ?? false;
         isSongLoading = true;
-        playbackState.add(playbackState.value
-            .copyWith(processingState: AudioProcessingState.loading));
+        playbackState.add(playbackState.value.copyWith(
+            processingState: !_inputControlEnabled
+                ? AudioProcessingState.idle
+                : AudioProcessingState.loading));
         if (_playList.children.isNotEmpty) {
           await _playList.clear();
         }
