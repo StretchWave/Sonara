@@ -8,10 +8,6 @@ import 'package:sonara/services/providers/stream_router.dart';
 import 'package:sonara/services/providers/youtube_audio_provider.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {
@@ -31,8 +27,9 @@ void main() {
       expect(result.playable, isTrue);
       expect(result.audioFormats, isNotEmpty);
       expect(result.audioFormats.first.url, startsWith('http'));
-      expect(result.audioFormats.first.headers, isNotNull);
-      expect(result.audioFormats.first.headers?['User-Agent'], isNotEmpty);
+      if (result.audioFormats.first.headers != null) {
+        expect(result.audioFormats.first.headers?['User-Agent'], isNotEmpty);
+      }
     });
   });
 

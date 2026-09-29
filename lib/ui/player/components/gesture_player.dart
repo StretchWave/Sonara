@@ -79,7 +79,7 @@ class GesturePlayer extends StatelessWidget {
                 right: 20),
             child: Container(
               decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withOpacity(0.3),
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(10)),
               constraints: const BoxConstraints(maxWidth: 500),
               height: 142,
@@ -195,7 +195,7 @@ class GesturePlayer extends StatelessWidget {
                                                     .textTheme
                                                     .titleLarge!
                                                     .color!
-                                                    .withOpacity(0.2),
+                                                    .withValues(alpha: 0.2),
                                           ));
                                     }),
                                     IconButton(
@@ -218,7 +218,7 @@ class GesturePlayer extends StatelessWidget {
                                                   .textTheme
                                                   .titleLarge!
                                                   .color!
-                                                  .withOpacity(0.2),
+                                                  .withValues(alpha: 0.2),
                                         ),
                                       ),
                                     ),

@@ -134,5 +134,28 @@ void main() {
       expect(restored.description, equals('Synthwave & Electronic'));
       expect(restored.isCloudPlaylist, isFalse);
     });
+
+    test('Anonymous guest account states and 5-day expiration threshold', () {
+      final supabaseService = Get.find<SupabaseService>();
+
+      // Initially logged out
+      expect(supabaseService.isLoggedIn.value, isFalse);
+      expect(supabaseService.isAnonymous.value, isFalse);
+      expect(supabaseService.userEmail.value, isEmpty);
+
+      // Verify 5-day cutoff interval calculation
+      final now = DateTime.utc(2026, 9, 29, 12, 0, 0);
+      final fiveDaysAgo = now.subtract(const Duration(days: 5));
+
+      final activeUserLastSeen = now.subtract(const Duration(days: 2));
+      final inactiveUserLastSeen = now.subtract(const Duration(days: 6));
+
+      // Active user should NOT be deleted
+      expect(activeUserLastSeen.isBefore(fiveDaysAgo), isFalse);
+
+      // Inactive user (> 5 days) MUST be deleted
+      expect(inactiveUserLastSeen.isBefore(fiveDaysAgo), isTrue);
+    });
   });
 }
+

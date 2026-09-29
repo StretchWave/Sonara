@@ -265,9 +265,14 @@ class _WelcomeStepState extends State<WelcomeStep> {
             ),
             const SizedBox(height: 20),
 
-            // Continue as Guest (moves to language selection)
+            // Continue as Guest (creates anonymous guest session & moves to language selection)
             TextButton(
-              onPressed: _isLoading ? null : () => _onboarding.skipLogin(),
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      _supabase.signInAnonymously();
+                      _onboarding.skipLogin();
+                    },
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

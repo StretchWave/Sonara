@@ -596,9 +596,9 @@ class _ActivityCalendar extends StatelessWidget {
     final leading = firstDay.weekday - 1; // weeks start on Monday
     final weeks = ((leading + totalDays) / 7).ceil();
 
-    final cellSize = 11.0;
-    final gap = 2.0;
-    final columnWidth = cellSize + gap;
+    const cellSize = 11.0;
+    const gap = 2.0;
+    const columnWidth = cellSize + gap;
 
     Color cellColor(int plays) {
       if (plays <= 0) {
@@ -720,7 +720,7 @@ class _ActivityCalendar extends StatelessWidget {
                                 child: Container(
                                   width: cellSize,
                                   height: cellSize,
-                                  margin: EdgeInsets.only(
+                                  margin: const EdgeInsets.only(
                                       right: gap, bottom: gap),
                                   decoration: BoxDecoration(
                                     color: cellColor(plays),

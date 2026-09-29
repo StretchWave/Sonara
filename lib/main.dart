@@ -24,7 +24,6 @@ import '/services/music_service.dart';
 import '/ui/home.dart';
 import '/ui/player/player_controller.dart';
 import 'ui/screens/Settings/settings_screen_controller.dart';
-import 'ui/screens/Settings/components/supabase_auth_dialog.dart';
 import '/ui/utils/theme_controller.dart';
 import 'ui/screens/Home/home_screen_controller.dart';
 import 'ui/screens/Library/library_controller.dart';

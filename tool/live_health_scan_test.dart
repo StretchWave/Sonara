@@ -8,10 +8,6 @@ import 'package:sonara/services/providers/provider_health.dart';
 import 'package:sonara/services/providers/stream_route_config.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {

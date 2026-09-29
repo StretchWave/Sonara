@@ -388,7 +388,7 @@ class AmazonProvider extends AudioSourceProvider {
     if (streamUrl == null || streamUrl.isEmpty) return null;
 
     final isHiRes = quality == 'HI_RES';
-    final mimeType = 'audio/mp4';
+    const mimeType = 'audio/mp4';
     final label = isHiRes ? 'Amazon Music Hi-Res' : 'Amazon Music';
     final bitrate = isHiRes ? 0 : 256000; // 0 for lossless means unknown
 

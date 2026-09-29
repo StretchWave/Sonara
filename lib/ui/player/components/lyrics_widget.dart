@@ -149,7 +149,7 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withOpacity(0.75),
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.75),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(

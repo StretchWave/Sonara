@@ -15,10 +15,6 @@ import 'package:sonara/services/providers/stream_router.dart';
 import 'package:sonara/services/stream_service.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {

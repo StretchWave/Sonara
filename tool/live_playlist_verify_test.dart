@@ -60,10 +60,6 @@ Future<String?> _resolveYoutubeUrl() async {
 }
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {

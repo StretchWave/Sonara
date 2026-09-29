@@ -4,17 +4,12 @@
 
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonara/services/providers/song_query.dart';
 import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:sonara/services/providers/stream_router.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {

@@ -62,9 +62,22 @@ class CloudSyncTile extends StatelessWidget {
           children: [
             const SizedBox(height: 2),
             Text(
-              "Signed in as: $email",
+              supabaseService.isAnonymous.value
+                  ? "Signed in as: Anonymous Guest"
+                  : "Signed in as: $email",
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            if (supabaseService.isAnonymous.value)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                child: Text(
+                  "Inactive guest accounts (> 5 days) are auto-deleted from the database.",
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color?.withValues(alpha: 0.7),
+                    fontSize: 11,
+                  ),
+                ),
+              ),
             const SizedBox(height: 2),
             Row(
               children: [

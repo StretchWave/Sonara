@@ -13,6 +13,7 @@ class SupabaseService extends GetxService {
   StreamSubscription<AuthState>? _authSubscription;
 
   final isLoggedIn = false.obs;
+  final isAnonymous = false.obs;
   final userEmail = ''.obs;
   final userId = ''.obs;
   final isAuthenticating = false.obs;
@@ -37,6 +38,10 @@ class SupabaseService extends GetxService {
               error is AuthException ? error.message : error.toString();
         },
       );
+      // Run background maintenance to purge anonymous accounts inactive for 5+ days
+      Future.delayed(const Duration(seconds: 4), () {
+        cleanupInactiveAnonymousUsers();
+      });
     } catch (e) {
       printERROR("SupabaseService initialization failed: $e");
     }
@@ -78,18 +83,52 @@ class SupabaseService extends GetxService {
   }
 
   void _updateUserFromSession(Session? session) {
-    if (session != null && session.user.email != null) {
-      isLoggedIn.value = true;
-      userEmail.value = session.user.email ?? '';
-      userId.value = session.user.id;
+    if (session != null) {
+      final user = session.user;
+      final isAnon = user.isAnonymous;
+      if (user.email != null || isAnon) {
+        isLoggedIn.value = true;
+        isAnonymous.value = isAnon;
+        userEmail.value = user.email ?? (isAnon ? 'Anonymous Guest' : '');
+        userId.value = user.id;
+        isAuthenticating.value = false;
+        authErrorMessage.value = '';
+        return;
+      }
+    }
+    isLoggedIn.value = false;
+    isAnonymous.value = false;
+    userEmail.value = '';
+    userId.value = '';
+  }
+
+  /// Sign in anonymously to create a guest account on Supabase.
+  /// Anonymous accounts inactive for 5+ days are automatically purged from the database.
+  Future<bool> signInAnonymously() async {
+    if (_client == null) {
+      authErrorMessage.value = "Supabase client not initialized";
+      return false;
+    }
+    isAuthenticating.value = true;
+    authErrorMessage.value = '';
+    try {
+      final response = await _client!.auth.signInAnonymously();
+      _updateUserFromSession(response.session);
       isAuthenticating.value = false;
-      authErrorMessage.value = '';
-    } else {
-      isLoggedIn.value = false;
-      userEmail.value = '';
-      userId.value = '';
+      return true;
+    } on AuthException catch (e) {
+      printERROR("Supabase signInAnonymously AuthException: ${e.message}");
+      authErrorMessage.value = e.message;
+      isAuthenticating.value = false;
+      return false;
+    } catch (e) {
+      printERROR("Supabase signInAnonymously error: $e");
+      authErrorMessage.value = e.toString();
+      isAuthenticating.value = false;
+      return false;
     }
   }
+
 
   /// Sign in with email and password
   Future<bool> signInWithPassword({
@@ -313,6 +352,28 @@ class SupabaseService extends GetxService {
     }
   }
 
+  /// Calls the PostgreSQL stored procedure to delete anonymous accounts that
+  /// have been inactive for more than 5 days.
+  /// Due to ON DELETE CASCADE on playlists and preferences, all linked cloud rows
+  /// are automatically deleted simultaneously.
+  Future<int?> cleanupInactiveAnonymousUsers() async {
+    if (_client == null) return null;
+    try {
+      final response = await _client!.rpc('delete_inactive_anonymous_users');
+      final count = response is num
+          ? response.toInt()
+          : (response is int ? response : null);
+      if (count != null && count > 0) {
+        printINFO("Purged $count inactive anonymous user accounts from database.");
+      }
+      return count;
+    } catch (e) {
+      // Best-effort cleanup — if pg_cron is handling it, RPC may be restricted or optional
+      printINFO("Anonymous cleanup notice: $e");
+      return null;
+    }
+  }
+
   /// Sign out without deleting local playlists or user data
   Future<void> signOut() async {
     if (_client == null) return;
@@ -322,6 +383,7 @@ class SupabaseService extends GetxService {
       printERROR("Supabase signOut error: $e");
     } finally {
       isLoggedIn.value = false;
+      isAnonymous.value = false;
       userEmail.value = '';
       userId.value = '';
       authErrorMessage.value = '';
@@ -334,3 +396,4 @@ class SupabaseService extends GetxService {
     super.onClose();
   }
 }
+

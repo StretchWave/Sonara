@@ -28,6 +28,7 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
   bool _hasDismissed = false;
   bool _isGoogleLoading = false;
   bool _isEmailSubmitting = false;
+  bool _isAnonymousLoading = false;
 
   @override
   void initState() {
@@ -94,6 +95,25 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
             _isGoogleLoading = false;
           });
         }
+      });
+    }
+  }
+
+  void _loginAnonymously() async {
+    setState(() {
+      _validationError = '';
+      _isAnonymousLoading = true;
+    });
+    final success = await _supabaseService.signInAnonymously();
+    if (!mounted) return;
+    setState(() {
+      _isAnonymousLoading = false;
+    });
+    if (success && _supabaseService.isLoggedIn.value) {
+      _onSuccessfulAuth("Signed in as Guest!");
+    } else {
+      setState(() {
+        _validationError = _supabaseService.authErrorMessage.value;
       });
     }
   }
@@ -255,6 +275,48 @@ class _SupabaseAuthDialogState extends State<SupabaseAuthDialog> {
                           const SizedBox(width: 12),
                           Text(
                             "Continue with Google",
+                            style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // Continue as Guest (Anonymous) Button
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColorLight,
+                  side: BorderSide(
+                    color: Theme.of(context)
+                        .dividerColor
+                        .withValues(alpha: 0.3),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: (_isGoogleLoading || _isEmailSubmitting || _isAnonymousLoading)
+                    ? null
+                    : _loginAnonymously,
+                child: _isAnonymousLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.person_outline, size: 20, color: textColor),
+                          const SizedBox(width: 10),
+                          Text(
+                            "Continue as Guest (Anonymous)",
                             style: TextStyle(
                               color: textColor,
                               fontWeight: FontWeight.w600,

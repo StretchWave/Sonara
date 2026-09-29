@@ -285,7 +285,7 @@ class DeezerProvider extends AudioSourceProvider {
     var url = base.trim();
     if (!url.contains('://')) url = 'https://$url';
     if (!url.endsWith('/get_url')) {
-      url = url.replaceAll(RegExp(r'/+$'), '') + '/get_url';
+      url = '${url.replaceAll(RegExp(r'/+$'), '')}/get_url';
     }
     return url;
   }

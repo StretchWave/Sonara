@@ -458,7 +458,7 @@ class ProviderHealthChecker {
     try {
       var url = base.trim();
       if (!url.endsWith('/get_url')) {
-        url = url.replaceAll(RegExp(r'/+$'), '') + '/get_url';
+        url = '${url.replaceAll(RegExp(r'/+$'), '')}/get_url';
       }
       final res = await _dio.post(
         url,

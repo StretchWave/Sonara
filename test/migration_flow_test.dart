@@ -163,7 +163,7 @@ void main() {
 
       // Cancellation is polled between batches, so exactly the first batch
       // (kMaxConcurrentResolutions items) finishes; the rest stay pending.
-      final batchSize = kMaxConcurrentResolutions;
+      const batchSize = kMaxConcurrentResolutions;
       var done = 0;
       await service.resolveAll(
         items,

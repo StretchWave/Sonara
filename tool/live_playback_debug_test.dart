@@ -1,7 +1,6 @@
 // Debugs why songs resolve but don't play.
 // Run with:  flutter test tool/live_playback_debug_test.dart
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -10,13 +9,8 @@ import 'package:sonara/services/background_task.dart';
 import 'package:sonara/services/providers/song_query.dart';
 import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:sonara/services/providers/stream_router.dart';
-import 'package:sonara/services/stream_service.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 Future<void> _probeUrl(String url, {Map<String, String>? headers}) async {
@@ -76,7 +70,7 @@ void main() {
     if (provider.audioFormats != null) {
       for (final f in provider.audioFormats!) {
         print('    itag=${f.itag} codec=${f.audioCodec} bitrate=${f.bitrate} '
-            'url=${f.url.length > 70 ? f.url.substring(0, 70) + '...' : f.url}');
+            'url=${f.url.length > 70 ? '${f.url.substring(0, 70)}...' : f.url}');
         print('    headers=${f.headers}');
         await _probeUrl(f.url, headers: f.headers);
         break;

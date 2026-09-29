@@ -97,7 +97,7 @@ class ThemeController extends GetxController {
         textColor: textColor.value,
         titleColorSwatch: _createMaterialColor(textColor.value));
     currentSongId = songId;
-    Hive.box('appPrefs').put("themePrimaryColor", (primaryColor.value!).value);
+    Hive.box('appPrefs').put("themePrimaryColor", (primaryColor.value!).toARGB32());
     setWindowsTitleBarColor(themedata.value!.scaffoldBackgroundColor);
   }
 
@@ -108,7 +108,7 @@ class ThemeController extends GetxController {
         SystemUiOverlayStyle(
             statusBarIconBrightness: Brightness.light,
             statusBarColor: Colors.transparent,
-            systemNavigationBarColor: Colors.white.withOpacity(0.002),
+            systemNavigationBarColor: Colors.white.withValues(alpha: 0.002),
             systemNavigationBarDividerColor: Colors.transparent,
             systemNavigationBarIconBrightness: Brightness.light,
             systemStatusBarContrastEnforced: false,
@@ -124,8 +124,6 @@ class ThemeController extends GetxController {
               brightness: Brightness.dark,
               backgroundColor: primarySwatch[700],
               primarySwatch: primarySwatch),
-          //accentColor: primarySwatch[200],
-          dialogBackgroundColor: primarySwatch[700],
           cardColor: primarySwatch[600],
           primaryColorLight: primarySwatch[400],
           primaryColorDark: primarySwatch[700],
@@ -154,7 +152,6 @@ class ThemeController extends GetxController {
                 letterSpacing: 0,
                 fontWeight: FontWeight.bold),
           ),
-          indicatorColor: Colors.white,
           progressIndicatorTheme: ProgressIndicatorThemeData(
               linearTrackColor: (primarySwatch[300])!.computeLuminance() > 0.3
                   ? Colors.black54
@@ -187,11 +184,11 @@ class ThemeController extends GetxController {
               style: OutlinedButton.styleFrom(
                   foregroundColor: textColor ?? Colors.white,
                   side: BorderSide(
-                      color: (textColor ?? Colors.white).withOpacity(0.3)))),
+                      color: (textColor ?? Colors.white).withValues(alpha: 0.3)))),
           elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
                   foregroundColor: Colors.black,
-                  backgroundColor: textColor ?? Colors.white)));
+                  backgroundColor: textColor ?? Colors.white)), dialogTheme: DialogThemeData(backgroundColor: primarySwatch[700]), tabBarTheme: const TabBarThemeData(indicatorColor: Colors.white));
       return baseTheme.copyWith(
           textTheme: GoogleFonts.interTextTheme(baseTheme.textTheme));
     } else if (themeType == ThemeType.dark) {
@@ -199,7 +196,7 @@ class ThemeController extends GetxController {
         SystemUiOverlayStyle(
             statusBarIconBrightness: Brightness.light,
             statusBarColor: Colors.transparent,
-            systemNavigationBarColor: Colors.white.withOpacity(0.002),
+            systemNavigationBarColor: Colors.white.withValues(alpha: 0.002),
             systemNavigationBarDividerColor: Colors.transparent,
             systemNavigationBarIconBrightness: Brightness.light,
             systemStatusBarContrastEnforced: false,
@@ -283,7 +280,7 @@ class ThemeController extends GetxController {
         SystemUiOverlayStyle(
             statusBarIconBrightness: Brightness.light,
             statusBarColor: Colors.transparent,
-            systemNavigationBarColor: Colors.white.withOpacity(0.002),
+            systemNavigationBarColor: Colors.white.withValues(alpha: 0.002),
             systemNavigationBarDividerColor: Colors.transparent,
             systemNavigationBarIconBrightness: Brightness.light,
             systemStatusBarContrastEnforced: false,
@@ -299,7 +296,6 @@ class ThemeController extends GetxController {
           primaryColorDark: Colors.black,
           primaryColorLight: Colors.grey[900],
           cardColor: const Color(0xFF0A0A0A),
-          dialogBackgroundColor: const Color(0xFF0A0A0A),
           colorScheme: ColorScheme.fromSwatch(
               accentColor: Colors.grey[700],
               brightness: Brightness.dark,
@@ -360,7 +356,7 @@ class ThemeController extends GetxController {
           inputDecorationTheme: const InputDecorationTheme(
               focusColor: Colors.white,
               focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white))));
+                  borderSide: BorderSide(color: Colors.white))), dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF0A0A0A)));
       return baseTheme.copyWith(
           textTheme: GoogleFonts.interTextTheme(baseTheme.textTheme));
     } else {
@@ -368,7 +364,7 @@ class ThemeController extends GetxController {
         SystemUiOverlayStyle(
             statusBarIconBrightness: Brightness.dark,
             statusBarColor: Colors.transparent,
-            systemNavigationBarColor: Colors.white.withOpacity(0.002),
+            systemNavigationBarColor: Colors.white.withValues(alpha: 0.002),
             systemNavigationBarDividerColor: Colors.transparent,
             systemNavigationBarIconBrightness: Brightness.dark,
             systemStatusBarContrastEnforced: false,
@@ -452,7 +448,9 @@ class ThemeController extends GetxController {
   MaterialColor _createMaterialColor(Color color) {
     List strengths = <double>[.05];
     Map<int, Color> swatch = {};
-    final int r = color.red, g = color.green, b = color.blue;
+    final int r = (color.r * 255.0).round();
+    final int g = (color.g * 255.0).round();
+    final int b = (color.b * 255.0).round();
 
     for (int i = 1; i < 10; i++) {
       strengths.add(0.1 * i);
@@ -466,7 +464,7 @@ class ThemeController extends GetxController {
         1,
       );
     }
-    return MaterialColor(color.value, swatch);
+    return MaterialColor(color.toARGB32(), swatch);
   }
 
   Future<void> setWindowsTitleBarColor(Color color) async {
@@ -475,9 +473,9 @@ class ThemeController extends GetxController {
       Future.delayed(
           const Duration(milliseconds: 350),
           () async => await platform.invokeMethod('setTitleBarColor', {
-                'r': color.red,
-                'g': color.green,
-                'b': color.blue,
+                'r': (color.r * 255.0).round(),
+                'g': (color.g * 255.0).round(),
+                'b': (color.b * 255.0).round(),
               }));
     } on PlatformException catch (e) {
       printERROR("Failed to set title bar color: ${e.message}");
@@ -488,10 +486,10 @@ class ThemeController extends GetxController {
 extension ComplementaryColor on Color {
   Color get complementaryColor => getComplementaryColor(this);
   Color getComplementaryColor(Color color) {
-    int r = 255 - color.red;
-    int g = 255 - color.green;
-    int b = 255 - color.blue;
-    return Color.fromARGB(color.alpha, r, g, b);
+    int r = 255 - (color.r * 255.0).round();
+    int g = 255 - (color.g * 255.0).round();
+    int b = 255 - (color.b * 255.0).round();
+    return Color.fromARGB((color.a * 255.0).round(), r, g, b);
   }
 }
 
@@ -521,11 +519,17 @@ extension HexColor on Color {
   }
 
   /// Prefixes a hash sign if [leadingHashSign] is set to `true` (default is `true`).
-  String toHex({bool leadingHashSign = true}) => '${leadingHashSign ? '#' : ''}'
-      '${alpha.toRadixString(16).padLeft(2, '0')}'
-      '${red.toRadixString(16).padLeft(2, '0')}'
-      '${green.toRadixString(16).padLeft(2, '0')}'
-      '${blue.toRadixString(16).padLeft(2, '0')}';
+  String toHex({bool leadingHashSign = true}) {
+    final aInt = (a * 255.0).round();
+    final rInt = (r * 255.0).round();
+    final gInt = (g * 255.0).round();
+    final bInt = (b * 255.0).round();
+    return '${leadingHashSign ? '#' : ''}'
+        '${aInt.toRadixString(16).padLeft(2, '0')}'
+        '${rInt.toRadixString(16).padLeft(2, '0')}'
+        '${gInt.toRadixString(16).padLeft(2, '0')}'
+        '${bInt.toRadixString(16).padLeft(2, '0')}';
+  }
 }
 
 enum ThemeType {

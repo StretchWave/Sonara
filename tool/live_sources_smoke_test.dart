@@ -21,10 +21,6 @@ import 'package:sonara/services/providers/tidal/tidal_provider.dart';
 import 'package:sonara/services/providers/youtube_audio_provider.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 const _deezerResolvers = [
@@ -55,7 +51,7 @@ void main() {
     print('  formats=${result.audioFormats.length}');
     for (final f in result.audioFormats.take(2)) {
       print('    itag=${f.itag} codec=${f.audioCodec} bitrate=${f.bitrate} '
-          'url=${f.url.length > 90 ? f.url.substring(0, 90) + '...' : f.url}');
+          'url=${f.url.length > 90 ? '${f.url.substring(0, 90)}...' : f.url}');
     }
     expect(result.playable, isTrue,
         reason: 'YTM should resolve a real video id: ${result.statusMSG}');

@@ -6,7 +6,6 @@
 //      no errors
 // Run with:  PATH="<build>/windows/x64/runner/Release:$PATH" flutter test tool/live_desktop_playback_test.dart
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -18,10 +17,6 @@ import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:sonara/services/providers/stream_router.dart';
 
 class _AllowAllHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }
 
 void main() {

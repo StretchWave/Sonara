@@ -80,7 +80,7 @@ void main() {
 
     test('Circuit breaker trips after consecutive failures and recovers on success', () {
       final tracker = RuntimeHealthTracker.instance;
-      final pid = ProviderId.qobuz;
+      const pid = ProviderId.qobuz;
 
       // Successful state
       tracker.recordSuccess(pid, 100);
@@ -105,7 +105,7 @@ void main() {
         maxTotalRetries: 3,
       );
 
-      final pid = ProviderId.tidal;
+      const pid = ProviderId.tidal;
 
       // Network error is retryable
       final networkDecision = policy.decide(
@@ -141,10 +141,10 @@ void main() {
       expect(coordinator.isActive(req1), isFalse);
       expect(coordinator.isActive(req2), isTrue);
 
-      final identity = RecordingIdentity(
+      const identity = RecordingIdentity(
         mediaId: 'song-test-race',
         title: 'Test Song',
-        primaryArtists: const ['Test Artist'],
+        primaryArtists: ['Test Artist'],
         durationMs: 180000,
       );
 

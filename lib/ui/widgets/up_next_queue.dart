@@ -137,7 +137,7 @@ class UpNextQueue extends StatelessWidget {
                                       .textTheme
                                       .titleMedium!
                                       .color!
-                                      .withOpacity(0.35))
+                                      .withValues(alpha: 0.35))
                           : Theme.of(homeScaffoldContext).textTheme.titleSmall,
                     ),
                     trailing: ReorderableDragStartListener(
