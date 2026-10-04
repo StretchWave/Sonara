@@ -168,11 +168,11 @@ void _setAppInitPrefs() {
       'discoverContentType': "REC",
       'newVersionVisibility': updateCheckFlag,
       "cacheHomeScreenData": true,
-      "inputControlEnabled": true
     });
-  } else if (!appPrefs.containsKey("inputControlEnabled")) {
-    appPrefs.put("inputControlEnabled", true);
   }
+  // NOTE: `inputControlEnabled` is native-owned (DataStore) and must not be
+  // seeded or persisted here. A legacy Hive copy, if present from older
+  // versions, is migrated once by SettingsScreenController and deleted.
 }
 
 class LifecycleHandler extends WidgetsBindingObserver {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
@@ -23,6 +24,7 @@ import '/models/hm_streaming_data.dart';
 import '/ui/player/player_controller.dart';
 import '../ui/screens/Home/home_screen_controller.dart';
 import '/services/background_task.dart';
+import '/services/input_control_client.dart';
 import '/services/duration_match.dart';
 import '/services/providers/cache/stream_cache.dart';
 import '/services/providers/matching/isrc.dart';
@@ -76,12 +78,12 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
   // var networkErrorPause = false;
   bool isSongLoading = true;
 
-  /// Single source of truth for external input gating (mirrors
-  /// SettingsScreenController.inputControlEnabled). Default true so
-  /// fresh installs have controls enabled. Persisted in Hive "AppPrefs".
-  bool _inputControlEnabled =
-      Hive.box("AppPrefs").get("inputControlEnabled", defaultValue: true) == true;
+  /// External-input gate mirror. Native ([InputControlStore]) owns the flag;
+  /// Dart only reads/writes it through [InputControlClient] (MethodChannel
+  /// get/set + EventChannel watch). No Hive / shared_preferences copy.
+  bool _inputControlEnabled = true;
   bool get inputControlEnabled => _inputControlEnabled;
+  StreamSubscription<bool>? _inputControlSub;
 
   // Consecutive playback errors, used to stop the re-resolve retry loop
   // after a few attempts instead of looping forever on a bad URL.
@@ -151,20 +153,26 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     if (GetPlatform.isAndroid) {
       _listenSessionIdStream();
     }
-    // React to toggle changes without requiring playback restart.
-    // Poll via Hive watch or GetX if available.
-    try {
-      final box = Hive.box("AppPrefs");
-      box.watch(key: "inputControlEnabled").listen((event) {
-        final enabled = (event.value as bool?) ?? true;
+    // Native-owned toggle: seed from DataStore, then follow live updates.
+    // In-app transport (play/pause/skip/seek/stop) stays working while off;
+    // only external entries (click/playFromMediaId/playFromSearch) are gated
+    // here. System routing removal (session + receiver) is native's job.
+    if (GetPlatform.isAndroid) {
+      InputControlClient().get().then((enabled) {
         _setInputControlEnabled(enabled);
       });
-    } catch (_) {}
+      _inputControlSub =
+          InputControlClient().watch().listen(_setInputControlEnabled);
+    }
   }
 
   /// Central toggle wiring: updates internal flag and re-emits
   /// playbackState so system UI (notification/lockscreen/Auto) hides
   /// transport buttons immediately while keeping metadata/artwork.
+  /// The real processing state is always reported: forcing `idle` would make
+  /// audio_service's native `setState` call `stop()` -> `stopSelf()`, killing
+  /// the service while just_audio keeps playing. Session hiding while off is
+  /// done natively (isActive=false + notification cancel).
   void _setInputControlEnabled(bool enabled) {
     if (_inputControlEnabled == enabled) return;
     _inputControlEnabled = enabled;
@@ -182,17 +190,15 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
           : [],
       systemActions: enabled ? const {MediaAction.seek} : const {},
       androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
-      processingState: enabled
-          ? (isSongLoading
-              ? AudioProcessingState.loading
-              : const {
-                  ProcessingState.idle: AudioProcessingState.idle,
-                  ProcessingState.loading: AudioProcessingState.loading,
-                  ProcessingState.buffering: AudioProcessingState.buffering,
-                  ProcessingState.ready: AudioProcessingState.ready,
-                  ProcessingState.completed: AudioProcessingState.completed,
-                }[_player.processingState]!)
-          : AudioProcessingState.idle,
+      processingState: isSongLoading
+          ? AudioProcessingState.loading
+          : const {
+              ProcessingState.idle: AudioProcessingState.idle,
+              ProcessingState.loading: AudioProcessingState.loading,
+              ProcessingState.buffering: AudioProcessingState.buffering,
+              ProcessingState.ready: AudioProcessingState.ready,
+              ProcessingState.completed: AudioProcessingState.completed,
+            }[_player.processingState]!,
     ));
   }
 
@@ -243,11 +249,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
               }
             : const {},
         androidCompactActionIndices: enabled ? const [0, 1, 2] : const [],
-        processingState: !enabled
-            ? AudioProcessingState.idle
-            : isSongLoading
-                ? AudioProcessingState.loading
-                : const {
+        processingState: isSongLoading
+            ? AudioProcessingState.loading
+            : const {
                     ProcessingState.idle: AudioProcessingState.idle,
                     ProcessingState.loading: AudioProcessingState.loading,
                     ProcessingState.buffering: AudioProcessingState.buffering,
@@ -571,9 +575,9 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
 
   @override
   Future<void> play() async {
-    // Gating for external controls is via playbackState controls (empty when
-    // disabled) + MainActivity dispatchKeyEvent + playFromMediaId. Do not block
-    // here or in-app UI (PlayerController) would also be blocked.
+    // Gating for external controls is via empty playbackState controls +
+    // native session/receiver removal. Do not block here or in-app UI
+    // (PlayerController) would also be blocked.
     if (currentSongUrl == null ||
         (GetPlatform.isDesktop &&
             (_player.duration == null ||
@@ -697,6 +701,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
     switch (name) {
 
       case 'dispose':
+        await _inputControlSub?.cancel();
         await _player.dispose();
         super.stop();
         break;
@@ -716,9 +721,7 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
         final bool restoreSession = extras['restoreSession'] ?? false;
         isSongLoading = true;
         playbackState.add(playbackState.value.copyWith(
-            processingState: !_inputControlEnabled
-                ? AudioProcessingState.idle
-                : AudioProcessingState.loading));
+            processingState: AudioProcessingState.loading));
         if (_playList.children.isNotEmpty) {
           await _playList.clear();
         }
@@ -1046,6 +1049,22 @@ class MyAudioHandler extends BaseAudioHandler with GetxServiceMixin {
       'songId': mediaId,
       'libraryId': extras!['libraryId'],
     });
+  }
+
+  /// External-only entries (notification tap / media-button default action /
+  /// Auto search). Gated while off; in-app transport methods above intentionally
+  /// stay ungated so the user can keep controlling playback from the app UI.
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    if (!_inputControlEnabled) return;
+    return super.click(button);
+  }
+
+  @override
+  Future<void> playFromSearch(String query,
+      [Map<String, dynamic>? extras]) async {
+    if (!_inputControlEnabled) return;
+    return super.playFromSearch(query, extras);
   }
 
   @override

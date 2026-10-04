@@ -1,16 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:sonara/services/input_control_client.dart';
 import 'package:sonara/services/permission_service.dart';
 import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import 'package:flutter/services.dart';
-import 'package:audio_service/audio_service.dart';
 
 import '../../../utils/update_check_flag_file.dart';
 import '/services/piped_service.dart';
@@ -68,36 +67,17 @@ class SettingsScreenController extends GetxController {
   final currentVersion = "V1.0.0";
 
   /// When false, all external media-button inputs (wired headset, BT AVRCP,
-  /// lockscreen/notification, Auto/Wear OS) are gated. Persisted in Hive.
-  /// Default true per spec. This is the single source of truth for all
-  /// four gating points (session, commands, key dispatch).
-  final inputControlEnabled =
-      RxBool(Hive.box("AppPrefs").get("inputControlEnabled", defaultValue: true) == true);
+  /// lockscreen/notification, Auto/Wear OS) are gated. Native owns the flag
+  /// (DataStore + StateFlow); this RxBool is a UI mirror fed by
+  /// [InputControlClient] get/watch. Nothing is persisted in Hive.
+  final inputControlEnabled = true.obs;
+  StreamSubscription<bool>? _inputControlSub;
 
-  static const _inputControlChannel =
-      MethodChannel("com.sonara.music/inputControl");
-
+  /// Writes go native-only; the EventChannel echo (also consumed by the
+  /// AudioHandler) updates this mirror and applies instantly, no restart.
   void toggleInputControlEnabled(bool val) {
     inputControlEnabled.value = val;
-    setBox.put("inputControlEnabled", val);
-    // Notify AudioHandler for immediate playbackState refresh (controls empty).
-    try {
-      Get.find<AudioHandler>().customAction(
-          "setInputControlEnabled", {"enabled": val});
-    } catch (_) {}
-    // Sync to native InputControlManager (wired key dispatch gating).
-    _inputControlChannel.invokeMethod("setInputControlEnabled", {"enabled": val}).catchError((_) {});
-  }
-
-  Future<void> _syncInputControlToNative() async {
-    try {
-      await _inputControlChannel.invokeMethod(
-          "setInputControlEnabled", {"enabled": inputControlEnabled.value});
-    } catch (_) {}
-    try {
-      Get.find<AudioHandler>().customAction(
-          "setInputControlEnabled", {"enabled": inputControlEnabled.value});
-    } catch (_) {}
+    InputControlClient().set(val);
   }
 
   @override
@@ -105,10 +85,35 @@ class SettingsScreenController extends GetxController {
     _setInitValue();
     if (updateCheckFlag) _checkNewVersion();
     _createInAppSongDownDir();
-    // Ensure native side and AudioHandler reflect persisted toggle without restart.
-    Future.delayed(const Duration(milliseconds: 500), _syncInputControlToNative);
-    ever(inputControlEnabled, (bool val) => _syncInputControlToNative());
+    // Native is the source of truth: one-time migration of the legacy Hive
+    // copy (then deleted so copies can't drift), seed UI, follow live.
+    _migrateLegacyInputControlFlag();
+    InputControlClient().get().then((v) {
+      if (!isClosed) inputControlEnabled.value = v;
+    });
+    _inputControlSub =
+        InputControlClient().watch().listen((v) {
+      if (!isClosed) inputControlEnabled.value = v;
+    });
     super.onInit();
+  }
+
+  /// One-time migration from the pre-toggle-wiring Hive copy to DataStore.
+  /// After pushing, the Hive key is deleted: Dart must not persist this flag.
+  Future<void> _migrateLegacyInputControlFlag() async {
+    try {
+      if (!setBox.containsKey('inputControlEnabled')) return;
+      final legacy = setBox.get('inputControlEnabled', defaultValue: true) == true;
+      await setBox.delete('inputControlEnabled');
+      inputControlEnabled.value = legacy;
+      await InputControlClient().set(legacy);
+    } catch (_) {}
+  }
+
+  @override
+  void onClose() {
+    _inputControlSub?.cancel();
+    super.onClose();
   }
 
   get currentVision => currentVersion;
@@ -358,8 +363,6 @@ class SettingsScreenController extends GetxController {
     galaxyOverlayEnabled.value = setBox.get("galaxyOverlayEnabled") ?? true;
     densityScale.value =
         (setBox.get("densityScale") as num?)?.toDouble() ?? 1.0;
-    inputControlEnabled.value =
-        setBox.get("inputControlEnabled", defaultValue: true) == true;
   }
 
   void setAppLanguage(String? val) {
@@ -617,6 +620,7 @@ class SettingsScreenController extends GetxController {
     instagramCookie.value = "";
     internetArchiveEnabled.value = true;
     inputControlEnabled.value = true;
+    InputControlClient().set(true);
     providerOrder.value = List.of(StreamRouteConfig.defaultProviderOrder);
     spotifyAutoFetchLyrics.value = true;
     spotifyAutoEnrichTracks.value = true;

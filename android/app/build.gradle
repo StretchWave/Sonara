@@ -68,5 +68,11 @@ flutter {
 dependencies {
     implementation 'com.android.support:multidex:2.0.1'
     implementation 'androidx.core:core-splashscreen:1.0.0-beta02'
+    implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    // Same artifact audio_service uses internally (its dep is `implementation`
+    // scoped, so MediaSessionCompat isn't transitively visible). Needed by the
+    // same-package AudioServiceGate shim that toggles session active state.
+    implementation 'androidx.media:media:1.6.0'
 }
 
