@@ -457,7 +457,7 @@ class SettingsScreen extends StatelessWidget {
                             const EdgeInsets.only(left: 5, right: 10),
                         title: Text("External media controls"),
                         subtitle: Text(
-                            "Allow headset, Bluetooth, lockscreen, notification and Auto to control playback. When off, metadata stays but buttons are hidden.",
+                            "Allow headset, Bluetooth, lockscreen, notification and Auto to control playback. When off, metadata stays but buttons are hidden. ${"externalControlsRestartNote".tr}",
                             style: Theme.of(context).textTheme.bodyMedium),
                         trailing: Obx(
                           () => CustSwitch(

@@ -1883,6 +1883,7 @@ Map<String, Map<String, String>> get keys => {
     "cacheSongsDes": "Caching songs while playing for future/offline playback, it will take additional space on your device",
     "skipSilence": "Skip silence",
     "skipSilenceDes": "Silence will be skipped in music playback",
+    "externalControlsRestartNote": "Restart the application for this setting to take full effect.",
     "loudnessNormalization": "Loudness normalization",
     "loudnessNormalizationDes": "Sets same lavel of loudness for all songs (Experimental) (Will not work on songs downloaded on previous version(< v1.10.0))",
     "streamingQuality": "Streaming quality",
