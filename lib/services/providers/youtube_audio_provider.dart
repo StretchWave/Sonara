@@ -17,7 +17,6 @@ class _InnerTubeClientCandidate {
   final String clientNameHeader;
   final String userAgent;
   final Map<String, dynamic> clientContext;
-  final bool isEmbedded;
 
   /// Whether this client requires the X-Goog-Visitor-Id header to return
   /// playable streams (VISIONOS does; without it YouTube answers
@@ -36,14 +35,15 @@ class _InnerTubeClientCandidate {
     required this.clientNameHeader,
     required this.userAgent,
     required this.clientContext,
-    this.isEmbedded = false,
     this.needsVisitorId = false,
     this.includeStreamHeaders = true,
   });
 }
 
-/// Streams audio directly from YouTube / YouTube Music using multi-client
-/// InnerTube racing, Piped fallback, and YoutubeExplode fallback.
+/// Streams audio directly from YouTube / YouTube Music using direct
+/// InnerTube requests (VISIONOS client) with a YoutubeExplode fallback.
+/// (The public Piped instances previously used as a middle fallback are all
+/// offline, so that step was removed rather than stalling playback.)
 class YouTubeAudioProvider extends AudioSourceProvider {
   const YouTubeAudioProvider({this.visitorId = ''});
 
@@ -127,7 +127,76 @@ class YouTubeAudioProvider extends AudioSourceProvider {
         return newId;
       }
     } catch (_) {}
+
+    // HTML scrape failed (consent wall / bot check / page-shape change).
+    // Fall back to the InnerTube API itself: any youtubei response carries
+    // responseContext.visitorData, and this endpoint is far less gated than
+    // the HTML page.
+    try {
+      final apiId = await _fetchVisitorIdViaApi();
+      if (apiId != null && apiId.isNotEmpty) {
+        _resolvedVisitorId = apiId;
+        try {
+          if (Hive.isBoxOpen('AppPrefs')) {
+            final prefs = Hive.box('AppPrefs');
+            prefs.put('visitorId', {
+              'id': apiId,
+              'exp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2592000,
+            });
+          }
+        } catch (_) {}
+        return apiId;
+      }
+    } catch (_) {}
     return _resolvedVisitorId;
+  }
+
+  /// Fetches visitor data through the InnerTube `guide` endpoint instead of
+  /// scraping HTML. Returns null when the API is unreachable.
+  static Future<String?> _fetchVisitorIdViaApi() async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final uri = Uri.parse(
+          'https://music.youtube.com/youtubei/v1/guide?prettyPrint=false');
+      final req = await client.postUrl(uri);
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('User-Agent',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0');
+      req.headers.set('Origin', 'https://music.youtube.com');
+      req.add(utf8.encode(jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20260707.12.00',
+            'gl': 'US',
+            'hl': 'en',
+          }
+        },
+      })));
+      final res = await req.close().timeout(const Duration(seconds: 4));
+      if (res.statusCode != 200) return null;
+      final body = await utf8.decoder.bind(res).join();
+      final json = jsonDecode(body);
+      final rc = json is Map ? json['responseContext'] : null;
+      String? id;
+      if (rc is Map && rc['visitorData'] is String) {
+        id = rc['visitorData'] as String;
+      }
+      if ((id == null || id.isEmpty) && body.contains('VISITOR_DATA')) {
+        final m = RegExp(r'"VISITOR_DATA"\s*:\s*"([^"]+)"').firstMatch(body);
+        if (m != null) id = m.group(1);
+      }
+      if (id == null || id.isEmpty) {
+        final m = RegExp(r'"visitorData"\s*:\s*"([^"]+)"').firstMatch(body);
+        if (m != null) id = m.group(1);
+      }
+      return (id != null && id.isNotEmpty) ? id : null;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close();
+    }
   }
 
   static const _ipadUserAgent =
@@ -136,8 +205,10 @@ class YouTubeAudioProvider extends AudioSourceProvider {
   static final List<_InnerTubeClientCandidate> _candidates = [
     // VISIONOS (yt-dlp's current primary client). Its stream URLs are NOT
     // range-gated (unlike IOS URLs, which only ever serve the first 1 MiB
-    // and therefore cannot be streamed by mpv/ExoPlayer), so it must be
-    // tried first.
+    // and therefore cannot be streamed by mpv/ExoPlayer).
+    // NOTE: TVHTML5_SIMPLY_EMBEDDED_PLAYER was removed — YouTube answers it
+    // with "YouTube is no longer supported in this application or device",
+    // so it only wasted a round-trip before falling through.
     const _InnerTubeClientCandidate(
       name: 'VISIONOS',
       clientName: 'VISIONOS',
@@ -160,37 +231,13 @@ class YouTubeAudioProvider extends AudioSourceProvider {
       needsVisitorId: true,
       includeStreamHeaders: false,
     ),
-    const _InnerTubeClientCandidate(
-      name: 'TVHTML5_EMBEDDED',
-      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-      clientVersion: '2.0',
-      clientNameHeader: '85',
-      userAgent:
-          'Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15',
-      clientContext: {
-        'client': {
-          'clientName': 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-          'clientVersion': '2.0',
-          'gl': 'US',
-          'hl': 'en',
-        }
-      },
-      isEmbedded: true,
-    ),
-  ];
-
-  static const List<String> _pipedInstances = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.privacydev.net',
-    'https://pipedapi.tokhmi.xyz',
-    'https://piped-api.garudalinux.org',
   ];
 
   @override
   Future<ResolvedStream> resolve(SongQuery query) async {
     final videoId = query.mediaId;
 
-    // 1. Try InnerTube multi-client racing (visionOS / TV embedded)
+    // 1. Try InnerTube directly (VISIONOS client).
     try {
       final innerTubeResult = await _resolveInnerTube(videoId);
       if (innerTubeResult != null && innerTubeResult.playable) {
@@ -200,17 +247,7 @@ class YouTubeAudioProvider extends AudioSourceProvider {
       // Continue to next fallback
     }
 
-    // 2. Try Piped instances fallback
-    try {
-      final pipedResult = await _resolvePiped(videoId);
-      if (pipedResult != null && pipedResult.playable) {
-        return pipedResult;
-      }
-    } catch (_) {
-      // Continue to next fallback
-    }
-
-    // 3. Fallback to YoutubeExplode
+    // 2. Fallback to YoutubeExplode
     return _resolveYoutubeExplode(videoId);
   }
 
@@ -289,12 +326,6 @@ class YouTubeAudioProvider extends AudioSourceProvider {
         clientMap['visitorData'] = visitorToken;
         context['client'] = clientMap;
       }
-      if (candidate.isEmbedded) {
-        context['thirdParty'] = {
-          'embedUrl': 'https://www.youtube.com/watch?v=$videoId'
-        };
-      }
-
       final bodyBytes = utf8.encode(jsonEncode({
         'context': context,
         'videoId': videoId,
@@ -371,70 +402,6 @@ class YouTubeAudioProvider extends AudioSourceProvider {
       }
     } catch (_) {}
     return null;
-  }
-
-  Future<ResolvedStream?> _resolvePiped(String videoId) async {
-    final httpClient = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 4);
-
-    try {
-      for (final instance in _pipedInstances) {
-        try {
-          final uri = Uri.parse('$instance/streams/$videoId');
-          final req = await httpClient.getUrl(uri);
-          req.headers.set('User-Agent', _ipadUserAgent);
-          final res = await req.close().timeout(const Duration(seconds: 4));
-          if (res.statusCode != 200) continue;
-
-          final resBody = await utf8.decoder.bind(res).join();
-          final json = jsonDecode(resBody);
-          final audioStreams = json['audioStreams'] as List? ?? [];
-          if (audioStreams.isEmpty) continue;
-
-          final formats = <Audio>[];
-          for (final s in audioStreams) {
-            final url = s['url'] as String?;
-            if (url == null || url.isEmpty) continue;
-
-            final itag = (s['itag'] as num?)?.toInt() ?? 140;
-            final mimeType = (s['mimeType'] as String? ?? 'audio/mp4');
-            final bitrate = (s['bitrate'] as num?)?.toInt() ?? 128000;
-            final isOpus = mimeType.contains('opus') ||
-                mimeType.contains('webm') ||
-                itag == 251 ||
-                itag == 250;
-
-            formats.add(Audio(
-              itag: itag,
-              audioCodec: isOpus ? Codec.opus : Codec.mp4a,
-              bitrate: bitrate,
-              duration: 0,
-              loudnessDb: 0.0,
-              url: url,
-              size: (s['contentLength'] as num?)?.toInt() ?? 0,
-              mimeType: mimeType,
-              headers: {
-                'User-Agent': _ipadUserAgent,
-              },
-            ));
-          }
-
-          if (formats.isNotEmpty) {
-            formats.sort((a, b) => b.bitrate.compareTo(a.bitrate));
-            return ResolvedStream(
-              playable: true,
-              statusMSG: 'OK',
-              audioFormats: formats,
-            );
-          }
-        } catch (_) {
-          continue;
-        }
-      }
-      return null;
-    } finally {
-      httpClient.close();
-    }
   }
 
   Future<ResolvedStream> _resolveYoutubeExplode(String videoId) async {

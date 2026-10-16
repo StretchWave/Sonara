@@ -15,6 +15,12 @@ analyzer:
     - "backend/**"
     - "tool/**"
     - ".dart_tool/**"
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 
 linter:

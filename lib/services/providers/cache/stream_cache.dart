@@ -26,12 +26,28 @@ class CachedStreamEntry {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now >= expiresAtMs) return true;
 
-    // Additional URL-level check for YouTube signed URLs
+    // Additional URL-level check for YouTube signed URLs. Check every URL
+    // the player might actually open (low *and* high quality plus any raw
+    // format list) — an expired high-quality URL 403s on open even when the
+    // low-quality twin is still fresh.
+    final urls = <String>[];
     final lowQuality = data['lowQualityAudio'];
     if (lowQuality is Map && lowQuality['url'] is String) {
-      final url = lowQuality['url'] as String;
-      if (url.contains('expire=')) {
-        return utils.isExpired(url: url);
+      urls.add(lowQuality['url'] as String);
+    }
+    final highQuality = data['highQualityAudio'];
+    if (highQuality is Map && highQuality['url'] is String) {
+      urls.add(highQuality['url'] as String);
+    }
+    final formats = data['audioFormats'];
+    if (formats is List) {
+      for (final f in formats) {
+        if (f is Map && f['url'] is String) urls.add(f['url'] as String);
+      }
+    }
+    for (final url in urls) {
+      if (url.contains('expire=') && utils.isExpired(url: url)) {
+        return true;
       }
     }
     return false;
