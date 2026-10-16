@@ -173,9 +173,12 @@ void _setAppInitPrefs() {
       'themePrimaryColor': 4278199603,
       'discoverContentType': "REC",
       'newVersionVisibility': updateCheckFlag,
-      "cacheHomeScreenData": true
+      "cacheHomeScreenData": true,
     });
   }
+  // NOTE: `inputControlEnabled` is native-owned (DataStore) and must not be
+  // seeded or persisted here. A legacy Hive copy, if present from older
+  // versions, is migrated once by SettingsScreenController and deleted.
 }
 
 class LifecycleHandler extends WidgetsBindingObserver {

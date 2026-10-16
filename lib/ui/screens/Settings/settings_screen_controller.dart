@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:sonara/services/input_control_client.dart';
 import 'package:sonara/services/permission_service.dart';
 import 'package:sonara/services/providers/stream_route_config.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -64,12 +66,54 @@ class SettingsScreenController extends GetxController {
   final densityScale = 1.0.obs;
   final currentVersion = "V1.0.0";
 
+  /// When false, all external media-button inputs (wired headset, BT AVRCP,
+  /// lockscreen/notification, Auto/Wear OS) are gated. Native owns the flag
+  /// (DataStore + StateFlow); this RxBool is a UI mirror fed by
+  /// [InputControlClient] get/watch. Nothing is persisted in Hive.
+  final inputControlEnabled = true.obs;
+  StreamSubscription<bool>? _inputControlSub;
+
+  /// Writes go native-only; the EventChannel echo (also consumed by the
+  /// AudioHandler) updates this mirror and applies instantly, no restart.
+  void toggleInputControlEnabled(bool val) {
+    inputControlEnabled.value = val;
+    InputControlClient().set(val);
+  }
+
   @override
   void onInit() {
     _setInitValue();
     if (updateCheckFlag) _checkNewVersion();
     _createInAppSongDownDir();
+    // Native is the source of truth: one-time migration of the legacy Hive
+    // copy (then deleted so copies can't drift), seed UI, follow live.
+    _migrateLegacyInputControlFlag();
+    InputControlClient().get().then((v) {
+      if (!isClosed) inputControlEnabled.value = v;
+    });
+    _inputControlSub =
+        InputControlClient().watch().listen((v) {
+      if (!isClosed) inputControlEnabled.value = v;
+    });
     super.onInit();
+  }
+
+  /// One-time migration from the pre-toggle-wiring Hive copy to DataStore.
+  /// After pushing, the Hive key is deleted: Dart must not persist this flag.
+  Future<void> _migrateLegacyInputControlFlag() async {
+    try {
+      if (!setBox.containsKey('inputControlEnabled')) return;
+      final legacy = setBox.get('inputControlEnabled', defaultValue: true) == true;
+      await setBox.delete('inputControlEnabled');
+      inputControlEnabled.value = legacy;
+      await InputControlClient().set(legacy);
+    } catch (_) {}
+  }
+
+  @override
+  void onClose() {
+    _inputControlSub?.cancel();
+    super.onClose();
   }
 
   get currentVision => currentVersion;
@@ -596,6 +640,8 @@ class SettingsScreenController extends GetxController {
     instagramEnabled.value = false;
     instagramCookie.value = "";
     internetArchiveEnabled.value = true;
+    inputControlEnabled.value = true;
+    InputControlClient().set(true);
     providerOrder.value = List.of(StreamRouteConfig.defaultProviderOrder);
     spotifyAutoFetchLyrics.value = true;
     spotifyAutoEnrichTracks.value = true;
