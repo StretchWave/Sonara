@@ -61,7 +61,9 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    if (!GetPlatform.isDesktop) Get.put(AppLinksController());
+    if (!GetPlatform.isDesktop && !Get.isRegistered<AppLinksController>()) {
+      Get.put(AppLinksController(), permanent: true);
+    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     return GetMaterialApp(
         title: 'Sonara',

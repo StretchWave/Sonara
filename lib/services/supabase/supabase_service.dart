@@ -33,9 +33,21 @@ class SupabaseService extends GetxService {
         },
         onError: (error, stackTrace) {
           printERROR("Supabase auth stream error: $error");
+          // Ignore benign double-exchange races: supabase_flutter already
+          // handles deep links internally, so a second getSessionFromUrl for
+          // the same ?code= can report "verifier not found" even though the
+          // first exchange succeeded and we are logged in.
+          final msg = error is AuthException ? error.message : error.toString();
+          if (isLoggedIn.value &&
+              (msg.contains('Code verifier could not be found') ||
+                  msg.contains('code verifier') ||
+                  msg.contains('already been used') ||
+                  msg.contains('No code detected'))) {
+            isAuthenticating.value = false;
+            return;
+          }
           isAuthenticating.value = false;
-          authErrorMessage.value =
-              error is AuthException ? error.message : error.toString();
+          authErrorMessage.value = msg;
         },
       );
       // Run background maintenance to purge anonymous accounts inactive for 5+ days
@@ -54,16 +66,42 @@ class SupabaseService extends GetxService {
   }
 
   /// Handles incoming OAuth deep links from Android/iOS.
+  /// NOTE: supabase_flutter already observes deep links internally
+  /// (detectSessionInUri=true) and exchanges ?code= automatically. This is a
+  /// fallback for links the SDK missed. It is idempotent and never overwrites
+  /// a successful login with a benign double-exchange error.
   Future<void> handleAuthDeeplink(Uri uri) async {
     try {
       printINFO("SupabaseService handling auth deep link: $uri");
-      isAuthenticating.value = true;
-      authErrorMessage.value = '';
 
+      // Already logged in (e.g. SDK handled it first) — nothing to do.
       if (_client?.auth.currentSession != null) {
         _updateUserFromSession(_client?.auth.currentSession);
         return;
       }
+      if (isLoggedIn.value && userId.value.isNotEmpty) return;
+
+      // Not an auth callback at all (no code / token / error) — ignore
+      // instead of surfacing "No code detected" as a login failure. This
+      // happens when Supabase redirects to the Site URL because the custom
+      // scheme redirect URL is not allow-listed in the dashboard.
+      final hasCode = uri.queryParameters.containsKey('code');
+      final hasError = uri.queryParameters.containsKey('error') ||
+          uri.queryParameters.containsKey('error_description') ||
+          uri.fragment.contains('error_description');
+      final hasToken = uri.queryParameters.containsKey('access_token') ||
+          uri.fragment.contains('access_token');
+      if (!hasCode && !hasError && !hasToken) {
+        printERROR(
+            "Supabase deep link has no auth params — likely redirect URL not allow-listed in Supabase dashboard. Add 'io.supabase.sonara://login-callback/' to Authentication -> URL Configuration -> Redirect URLs.");
+        authErrorMessage.value =
+            'Login redirect was not recognized. Please add io.supabase.sonara://login-callback/ to Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs.';
+        isAuthenticating.value = false;
+        return;
+      }
+
+      isAuthenticating.value = true;
+      authErrorMessage.value = '';
 
       final res = await _client?.auth.getSessionFromUrl(uri);
       if (res?.session != null) {
@@ -73,10 +111,27 @@ class SupabaseService extends GetxService {
       }
     } on AuthException catch (e) {
       printERROR("Supabase AuthException from deep link: ${e.message}");
+      // Benign race: SDK already consumed this code successfully.
+      if ((_client?.auth.currentSession != null) ||
+          (isLoggedIn.value &&
+              (e.message.contains('Code verifier') ||
+                  e.message.contains('already been used') ||
+                  e.message.contains('No code detected')))) {
+        _updateUserFromSession(_client?.auth.currentSession);
+        return;
+      }
       authErrorMessage.value = e.message;
     } catch (e) {
       printERROR("Supabase deep link error: $e");
-      authErrorMessage.value = e.toString();
+      final msg = e.toString();
+      if (isLoggedIn.value &&
+          (msg.contains('Code verifier') ||
+              msg.contains('already been used') ||
+              msg.contains('No code detected'))) {
+        isAuthenticating.value = false;
+        return;
+      }
+      authErrorMessage.value = msg;
     } finally {
       isAuthenticating.value = false;
     }
