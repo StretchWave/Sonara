@@ -11,7 +11,6 @@ import '/models/artist.dart';
 import '/models/playlist.dart';
 import '/services/utils.dart';
 import '../utils/helper.dart';
-import '/services/ytaccount/yt_account_service.dart';
 import 'constant.dart';
 import 'continuations.dart';
 import 'nav_parser.dart';
@@ -61,17 +60,6 @@ class MusicServices extends getx.GetxService {
   }
 
   final dio = Dio();
-
-  /// The signed-in YouTube Music session, resolved on demand (null when
-  /// logged out / not yet registered so every request stays anonymous).
-  YtAccountService? _ytAccount() {
-    try {
-      if (getx.Get.isRegistered<YtAccountService>()) {
-        return getx.Get.find<YtAccountService>();
-      }
-    } catch (_) {}
-    return null;
-  }
 
   Future<void> init() async {
     //check visitor id in data base, if not generate one , set lang code
@@ -145,25 +133,12 @@ class MusicServices extends getx.GetxService {
   Future<Response> _sendRequest(String action, Map<dynamic, dynamic> data,
       {additionalParams = ""}) async {
     //print("$baseUrl$action$fixedParms$additionalParams          data:$data");
-    Map<String, String> headers = _headers;
-    final ytAccount = _ytAccount();
-    if (ytAccount != null && ytAccount.isLoggedIn.value) {
-      final sapisid = YtAccountService.sapisidFromCookie(ytAccount.cookieHeader.value);
-      if (sapisid != null) {
-        // Signed-in requests carry the full cookie jar plus an epoch-fresh
-        // SAPISIDHASH; without these personalized browse ids answer empty/401.
-        headers = {..._headers,
-          'Cookie': ytAccount.cookieHeader.value,
-          'Authorization': YtAccountService.sapisidHash(sapisid),
-        };
-      }
-    }
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final response =
             await dio.post("$baseUrl$action$fixedParms$additionalParams",
                 options: Options(
-                  headers: headers,
+                  headers: _headers,
                 ),
                 data: data);
 
@@ -213,63 +188,6 @@ class MusicServices extends getx.GetxService {
 
     return home;
   }
-
-  /// One signed-in YT Music library page (playlists / albums / artists
-  /// shelves), flattened into mirror items and paged to `limit`.
-  Future<List<Map<String, dynamic>>> getLibraryShelf(String browseId,
-      {int limit = 500}) async {
-    final data = Map.from(_context);
-    data["browseId"] = browseId;
-    final response = await _sendRequest("browse", data);
-
-    final shelf =
-        nav(response.data, musicPlaylistShelfRenderer) as Map<String, dynamic>? ??
-            nav(
-              response.data,
-              [
-                'contents',
-                'singleColumnBrowseResultsRenderer',
-                'tabs',
-                0,
-                'tabRenderer',
-                'content',
-                'sectionListRenderer',
-                'contents',
-                0,
-                'musicPlaylistShelfRenderer'
-              ],
-            ) as Map<String, dynamic>?;
-    final List? contents = shelf?['contents'];
-    if (contents == null) return [];
-
-    final items = parseLibraryGrid(contents);
-    if (items.length < limit) {
-      final continuationItems = await getContinuationsPlaylist(
-          shelf!.cast<String, dynamic>(),
-          limit - items.length,
-          (String additionalParams) async =>
-              (await _sendRequest("browse", data,
-                      additionalParams: additionalParams))
-                  .data,
-          (List continuationItems) => parseLibraryGrid(continuationItems));
-      items.addAll(continuationItems.cast<Map<String, dynamic>>());
-    }
-    return items;
-  }
-
-  Future<List<Map<String, dynamic>>> getLibraryPlaylists({int limit = 500}) =>
-      getLibraryShelf('FEmusic_liked_playlists', limit: limit);
-
-  Future<List<Map<String, dynamic>>> getLibraryAlbums({int limit = 500}) =>
-      getLibraryShelf('FEmusic_liked_albums', limit: limit);
-
-  Future<List<Map<String, dynamic>>> getLibraryArtists({int limit = 500}) =>
-      getLibraryShelf('FEmusic_library_corpus_track_artists', limit: limit);
-
-  /// Liked songs = the implicit `LM` playlist (`VLLM` after the VL prefix),
-  /// paged by the regular playlist pipeline.
-  Future<Map<String, dynamic>> getLikedSongs({int limit = 3000}) =>
-      getPlaylistOrAlbumSongs(playlistId: 'LM');
 
   Future<List<Map<String, dynamic>>> getCharts(String catogory,
       {String? countryCode}) async {
