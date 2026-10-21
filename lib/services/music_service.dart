@@ -145,17 +145,18 @@ class MusicServices extends getx.GetxService {
   Future<Response> _sendRequest(String action, Map<dynamic, dynamic> data,
       {additionalParams = ""}) async {
     //print("$baseUrl$action$fixedParms$additionalParams          data:$data");
-    Map<String, String> headers = _headers;
+    // Start from a copy: the base jar holds an anonymous consent cookie
+    // that must be REPLACED (same lowercase key) when signed in, never
+    // added alongside — duplicate Cookie entries get comma-joined by the
+    // HTTP stack into invalid cookie syntax and the request shows up
+    // logged-out again.
+    Map<String, String> headers = Map.from(_headers);
     final ytAccount = _ytAccount();
     if (ytAccount != null && ytAccount.isLoggedIn.value) {
       final sapisid = YtAccountService.sapisidFromCookie(ytAccount.cookieHeader.value);
       if (sapisid != null) {
-        // Signed-in requests carry the full cookie jar plus an epoch-fresh
-        // SAPISIDHASH; without these personalized browse ids answer empty/401.
-        headers = {..._headers,
-          'Cookie': ytAccount.cookieHeader.value,
-          'Authorization': YtAccountService.sapisidHash(sapisid),
-        };
+        headers['cookie'] = ytAccount.cookieHeader.value;
+        headers['authorization'] = YtAccountService.sapisidHash(sapisid);
       }
     }
     for (int attempt = 0; attempt < 3; attempt++) {
@@ -215,46 +216,62 @@ class MusicServices extends getx.GetxService {
   }
 
   /// One signed-in YT Music library page (playlists / albums / artists
-  /// shelves), flattened into mirror items and paged to `limit`.
+  /// shelves), flattened into mirror items and paged to `limit`. Layout
+  /// mirrors the deep-scan of the artist grid in the personalization
+  /// reference: cards and rows are searched across the whole tree, tokens
+  /// come back with the page and can be ~25 per round trip.
   Future<List<Map<String, dynamic>>> getLibraryShelf(String browseId,
       {int limit = 500}) async {
     final data = Map.from(_context);
     data["browseId"] = browseId;
     final response = await _sendRequest("browse", data);
+    final items = parseLibraryResponse(response.data);
 
-    final shelf =
-        nav(response.data, musicPlaylistShelfRenderer) as Map<String, dynamic>? ??
-            nav(
-              response.data,
-              [
-                'contents',
-                'singleColumnBrowseResultsRenderer',
-                'tabs',
-                0,
-                'tabRenderer',
-                'content',
-                'sectionListRenderer',
-                'contents',
-                0,
-                'musicPlaylistShelfRenderer'
-              ],
-            ) as Map<String, dynamic>?;
-    final List? contents = shelf?['contents'];
-    if (contents == null) return [];
-
-    final items = parseLibraryGrid(contents);
-    if (items.length < limit) {
-      final continuationItems = await getContinuationsPlaylist(
-          shelf!.cast<String, dynamic>(),
-          limit - items.length,
-          (String additionalParams) async =>
-              (await _sendRequest("browse", data,
-                      additionalParams: additionalParams))
-                  .data,
-          (List continuationItems) => parseLibraryGrid(continuationItems));
-      items.addAll(continuationItems.cast<Map<String, dynamic>>());
+    String? token = _firstContinuationToken(response.data);
+    int pages = 0;
+    while (items.length < limit && token != null && pages < 40) {
+      pages++;
+      final page = (await _sendRequest("browse", data,
+              additionalParams: getContinuationString(token)))
+          .data;
+      final pageItems = parseLibraryResponse(page);
+      if (pageItems.isEmpty) break;
+      items.addAll(pageItems);
+      String? next = _firstContinuationToken(page);
+      if (next == null || next == token) break;
+      token = next;
     }
     return items;
+  }
+
+  /// First paging token in storage order: modern `continuationCommand`
+  /// or legacy `nextContinuationData` (same sweep as the personalization
+  /// reference's continuation_token).
+  String? _firstContinuationToken(dynamic node) {
+    if (node is Map) {
+      for (final entry in node.entries) {
+        if (entry.value is Map) {
+          if (entry.key == 'continuationCommand') {
+            final t = (entry.value as Map)['token'];
+            if (t is String && t.isNotEmpty) return t;
+          } else if (entry.key == 'nextContinuationData') {
+            final t = (entry.value as Map)['continuation'];
+            if (t is String && t.isNotEmpty) return t;
+          }
+          final nested = _firstContinuationToken(entry.value);
+          if (nested != null) return nested;
+        } else if (entry.value is List) {
+          final nested = _firstContinuationToken(entry.value);
+          if (nested != null) return nested;
+        }
+      }
+    } else if (node is List) {
+      for (final value in node) {
+        final nested = _firstContinuationToken(value);
+        if (nested != null) return nested;
+      }
+    }
+    return null;
   }
 
   Future<List<Map<String, dynamic>>> getLibraryPlaylists({int limit = 500}) =>
@@ -482,91 +499,89 @@ class MusicServices extends getx.GetxService {
     final Map<String, dynamic> response =
         (await _sendRequest('browse', data)).data;
     if (playlistId != null) {
-      final Map<String, dynamic> header =
-          nav(response, ['header', "musicDetailHeaderRenderer"]) ??
-              nav(response, [
-                'contents',
-                "twoColumnBrowseResultsRenderer",
-                'tabs',
-                0,
-                "tabRenderer",
-                "content",
-                "sectionListRenderer",
-                "contents",
-                0,
-                "musicResponsiveHeaderRenderer"
-              ]);
+      // Saved/owned playlist pages nest their header and track shelf
+      // differently depending on ownership and single/two-column layout,
+      // so locate both anywhere in the tree (same sweep as the library
+      // grid handling) rather than trusting two fixed paths.
+      final dynamic header =
+          findFirstRenderer(response, "musicResponsiveHeaderRenderer") ??
+              findFirstRenderer(response, "musicDetailHeaderRenderer");
+      final dynamic results =
+          findFirstRenderer(response, "musicPlaylistShelfRenderer") ??
+              findFirstRenderer(response, "musicShelfRenderer");
+      final Map<String, dynamic> playlist = {
+        'id': nav(results, ['playlistId']) ?? browseId
+      };
 
-      final Map<String, dynamic> results =
-          nav(response, musicPlaylistShelfRenderer) ??
-              nav(
-                response,
-                [
-                  'contents',
-                  "singleColumnBrowseResultsRenderer",
-                  "tabs",
-                  0,
-                  "tabRenderer",
-                  "content",
-                  'sectionListRenderer',
-                  'contents',
-                  0,
-                  "musicPlaylistShelfRenderer"
-                ],
-              );
-      final Map<String, dynamic> playlist = {'id': results['playlistId']};
-
-      playlist['title'] = nav(header, title_text);
-      playlist['thumbnails'] = nav(header, thumnail_cropped) ??
-          nav(header, [
-            "thumbnail",
-            "musicThumbnailRenderer",
-            "thumbnail",
-            "thumbnails"
-          ]);
-      playlist["description"] = nav(header, description);
-      final int runCount = header['subtitle']['runs'].length;
-      if (runCount > 1) {
-        playlist['author'] = {
-          'name': nav(header, subtitle2),
-          'id': nav(header, ['subtitle', 'runs', 2] + navigation_browse_id)
-        };
-        if (runCount == 5) {
-          playlist['year'] = nav(header, subtitle3);
+      final List? subtitleRuns = nav(header, ['subtitle', 'runs']) as List?;
+      final List? secondSubtitleRuns =
+          nav(header, ['secondSubtitle', 'runs']) as List?;
+      if (header != null) {
+        playlist['title'] = nav(header, title_text);
+        playlist['thumbnails'] = nav(header, thumnail_cropped) ??
+            nav(header, [
+              "thumbnail",
+              "musicThumbnailRenderer",
+              "thumbnail",
+              "thumbnails"
+            ]);
+        playlist["description"] = nav(header, description);
+        final int runCount = subtitleRuns?.length ?? 0;
+        if (runCount > 1) {
+          playlist['author'] = {
+            'name': nav(header, subtitle2),
+            'id': nav(header, ['subtitle', 'runs', 2] + navigation_browse_id)
+          };
+          if (runCount == 5) {
+            playlist['year'] = nav(header, subtitle3);
+          }
         }
       }
 
-      final int secondSubtitleRunCount =
-          header['secondSubtitle']['runs'].length;
-      final String count = (((header['secondSubtitle']['runs']
-                      [secondSubtitleRunCount % 3]['text'])
-                  .split(' ')[0])
-              .split(',') as List)
-          .join();
-      final int songCount = int.parse(count);
-      if (header['secondSubtitle']['runs'].length > 1) {
-        playlist['duration'] = header['secondSubtitle']['runs']
-            [(secondSubtitleRunCount % 3) + 2]['text'];
+      int songCount = 0;
+      if (secondSubtitleRuns != null && secondSubtitleRuns.isNotEmpty) {
+        try {
+          final int secondSubtitleRunCount = secondSubtitleRuns.length;
+          final String count = (secondSubtitleRuns[
+                      secondSubtitleRunCount % 3]['text'] as String)
+              .split(' ')[0]
+              .split(',')
+              .join();
+          songCount = int.parse(count);
+          if (secondSubtitleRunCount > 1) {
+            playlist['duration'] = secondSubtitleRuns
+                [(secondSubtitleRunCount % 3) + 2]['text'];
+          }
+        } catch (e) {
+          printINFO("playlist count/duration runs mismatched: $e");
+        }
+      } else if (subtitleRuns != null) {
+        for (final run in subtitleRuns) {
+          final text = run is Map ? (run['text']?.toString() ?? '') : '';
+          final m = RegExp(r'^([\d,]+) songs?$').firstMatch(text.trim());
+          if (m != null) {
+            songCount = int.tryParse(m.group(1)!.replaceAll(',', '')) ?? 0;
+            break;
+          }
+        }
       }
       playlist['trackCount'] = songCount;
-
-      // requestFunc(additionalParams) async => (await _sendRequest("browse", data,
-      //         additionalParams: additionalParams))
-      //     .data;
 
       requestFuncCountinuation(cont) async =>
           (await _sendRequest("browse", {...data, ...cont})).data;
 
-      if (songCount > 0) {
-        playlist['tracks'] = parsePlaylistItems(results['contents']);
+      playlist['tracks'] = parsePlaylistItems(results?['contents'] ?? []);
+      final currentTrackCount = (playlist['tracks'] as List).length;
+      if (songCount > currentTrackCount) {
         limit = songCount;
-
         List<dynamic> parseFunc(contents) => parsePlaylistItems(contents);
-
         playlist['tracks'] = [
           ...(playlist['tracks']),
           ...(await getContinuationsPlaylist(
-              results, limit, requestFuncCountinuation, parseFunc))
+              results.cast<String, dynamic>(),
+              limit - currentTrackCount,
+              requestFuncCountinuation,
+              parseFunc))
         ];
       }
       playlist['duration_seconds'] = sumTotalDuration(playlist);

@@ -10,6 +10,7 @@ import 'dart:convert';
 
 import '../../../utils/house_keeping.dart';
 import '/utils/app_link_controller.dart';
+import '/ui/navigator.dart';
 import '../../widgets/add_to_playlist.dart';
 import '/ui/widgets/sort_widget.dart';
 import '../Settings/settings_screen_controller.dart';
@@ -974,11 +975,13 @@ class YtLibraryController extends GetxController {
   void openYtItem(Map<String, dynamic> item) {
     final id = item['id']?.toString() ?? '';
     if (id.isEmpty) return;
-    final appLink = Get.find<AppLinksController>();
     if (item['kind'] == 'artist') {
-      appLink.openArtist(id);
+      Get.find<AppLinksController>().openArtist(id);
+    } else if (item['kind'] == 'album') {
+      Get.toNamed(ScreenNavigationSetup.albumScreen,
+          id: ScreenNavigationSetup.id, arguments: [null, id]);
     } else {
-      appLink.openPlaylistOrAlbum(id);
+      Get.find<AppLinksController>().openPlaylistOrAlbum(id);
     }
   }
 

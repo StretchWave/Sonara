@@ -193,72 +193,174 @@ List<Map<String, dynamic>> parseMixedContent(List<dynamic> rows) {
 }
 
 /// Normalizes a signed-in YT Music library grid response into flat mirror
+/// items suitable for the Library UI. Kept for wrapper-shape fixtures;
+/// `parseLibraryResponse` is the layout-agnostic variant used live.
+String _libraryKindFromPageType(dynamic type) {
+  final t = type?.toString().toLowerCase() ?? '';
+  if (t.contains('album')) return 'album';
+  if (t.contains('artist')) return 'artist';
+  if (t.contains('track') || t.contains('video')) return 'track';
+  return 'playlist';
+}
+
+String? _libraryThumbFrom(dynamic list) {
+  if (list is List && list.isNotEmpty) {
+    final url = list[0]?['url'];
+    if (url is String && url.isNotEmpty) return url;
+  }
+  return null;
+}
+
+String _libraryKindFromBrowseId(String id) {
+  if (id.startsWith('MPRE') || id.startsWith('VLMPRE')) return 'album';
+  if (id.startsWith('UC')) return 'artist';
+  return 'playlist';
+}
+
+Map<String, dynamic>? _libraryCardItem(Map data) {
+  String? id;
+  String kind;
+  final watchId = nav(data, navigation_video_id) ??
+      nav(data, n_title + navigation_video_id);
+  if (watchId != null) {
+    id = watchId.toString();
+    kind = 'track';
+  } else {
+    final playlistId = nav(data, navigation_watch_playlist_id) ??
+        nav(data, n_title + navigation_watch_playlist_id);
+    if (playlistId != null) {
+      final pid = playlistId.toString();
+      id = pid.startsWith('VL') ? pid : 'VL$pid';
+      kind = 'playlist';
+    } else {
+      final browseId = (nav(data, navigation_browse_id) ??
+              nav(data, n_title + navigation_browse_id))
+          ?.toString();
+      if (browseId == null) return null;
+      id = browseId.startsWith('MPLA') ? browseId.substring(4) : browseId;
+      kind = _libraryKindFromPageType(nav(
+          data,
+          n_title + navigation_browse + page_type,
+          noneIfAbsent: true,
+          funName: 'libGridCard'));
+      if (kind == 'playlist') {
+        kind = _libraryKindFromBrowseId(id);
+      }
+    }
+  }
+  return {
+    'kind': kind,
+    'id': id,
+    'title': nav(data, title_text) ?? '',
+    'subtitle': nav(data, subtitle) is String ? nav(data, subtitle) : '',
+    'thumbnailUrl': _libraryThumbFrom(nav(data, thumbnail_renderer)) ?? '',
+  };
+}
+
+Map<String, dynamic>? _libraryRowItem(Map data) {
+  final id = nav(data, navigation_browse_id);
+  if (id == null) return null;
+  final flex = getFlexColumnItem(data.cast<String, dynamic>(), 0);
+  final flexSecond = getFlexColumnItem(data.cast<String, dynamic>(), 1);
+  return {
+    'kind': _libraryKindFromPageType(nav(
+        data,
+        [
+          'flexColumns',
+          1,
+          'musicResponsiveListItemFlexColumnRenderer'
+        ] +
+            text_run +
+            navigation_browse +
+            page_type,
+        noneIfAbsent: true,
+        funName: 'libGridRow')),
+    'id': id.toString(),
+    'title': nav(flex, text_run_text) ?? '',
+    'subtitle': nav(flexSecond, text_run_text) ?? '',
+    'thumbnailUrl':
+        _libraryThumbFrom(nav(data, thumbnails)) ?? _libraryThumbFrom(nav(data, thumbnail)) ?? '',
+  };
+}
+
+/// Normalizes a signed-in YT Music library grid response into flat mirror
 /// items suitable for the Library UI: kind playlist/album/artist/track.
 List<Map<String, dynamic>> parseLibraryGrid(List<dynamic> contents) {
   final items = <Map<String, dynamic>>[];
   for (var item in contents) {
     if (item is! Map) continue;
-    String _kindFromPageType(dynamic type) {
-      final t = type?.toString().toLowerCase() ?? '';
-      if (t.contains('album')) return 'album';
-      if (t.contains('artist')) return 'artist';
-      if (t.contains('track') || t.contains('video')) return 'track';
-      return 'playlist';
-    }
-
-    String? _thumbFrom(dynamic list) {
-      if (list is List && list.isNotEmpty) {
-        final url = list[0]?['url'];
-        if (url is String && url.isNotEmpty) return url;
-      }
-      return null;
-    }
-
     Map? data = nav(item, [mtrir]);
     if (data != null) {
-      final id = nav(data, navigation_browse_id) ??
-          nav(data, n_title + navigation_browse_id);
-      if (id == null) continue;
-      items.add({
-        'kind': _kindFromPageType(
-            nav(data, n_title + navigation_browse + page_type,
-                noneIfAbsent: true, funName: 'libGridCard')),
-        'id': id.toString(),
-        'title': nav(data, title_text) ?? '',
-        'subtitle': nav(data, subtitle) is String ? nav(data, subtitle) : '',
-        'thumbnailUrl': _thumbFrom(nav(data, thumbnail_renderer)) ?? '',
-      });
+      final entry = _libraryCardItem(data);
+      if (entry != null) items.add(entry);
       continue;
     }
-
     data = nav(item, [mrlir]);
     if (data != null) {
-      final id = nav(data, navigation_browse_id);
-      if (id == null) continue;
-      final flex = getFlexColumnItem(data.cast<String, dynamic>(), 0);
-      final flexSecond =
-          getFlexColumnItem(data.cast<String, dynamic>(), 1);
-      items.add({
-        'kind': _kindFromPageType(nav(
-            data,
-            [
-              'flexColumns',
-              1,
-              'musicResponsiveListItemFlexColumnRenderer',
-              'runs',
-              0
-            ] +
-                navigation_browse +
-                page_type,
-            noneIfAbsent: true,
-            funName: 'libGridRow')),
-        'id': id.toString(),
-        'title': nav(flex, text_run_text) ?? '',
-        'subtitle': nav(flexSecond, text_run_text) ?? '',
-        'thumbnailUrl':
-            _thumbFrom(nav(data, thumbnails)) ?? _thumbFrom(nav(data, thumbnail)) ?? '',
-      });
+      final entry = _libraryRowItem(data);
+      if (entry != null) items.add(entry);
     }
+  }
+  return items;
+}
+
+/// Whole-tree sweep for a renderer map, first occurrence (storage order).
+dynamic findFirstRenderer(dynamic node, String rendererKey) {
+  if (node is Map) {
+    for (final entry in node.entries) {
+      if (entry.key == rendererKey) return entry.value;
+    }
+    for (final value in node.values) {
+      final found = findFirstRenderer(value, rendererKey);
+      if (found != null) return found;
+    }
+  } else if (node is List) {
+    for (final value in node) {
+      final found = findFirstRenderer(value, rendererKey);
+      if (found != null) return found;
+    }
+  }
+  return null;
+}
+
+/// Collects every occurrence of a renderer map across the tree.
+List<Map> findAllRenderers(dynamic node, String rendererKey) {
+  final found = <Map>[];
+  void walk(dynamic node) {
+    if (node is Map) {
+      for (final entry in node.entries) {
+        if (entry.key == rendererKey && entry.value is Map) {
+          found.add(entry.value as Map);
+        }
+      }
+      for (final value in node.values) {
+        walk(value);
+      }
+    } else if (node is List) {
+      for (final value in node) {
+        walk(value);
+      }
+    }
+  }
+
+  walk(node);
+  return found;
+}
+
+/// Parse a library browse response layout-agnostically (the renderer can
+/// sit in a playlist shelf, a dedicated shelf or a continuation payload).
+/// Library artists arrive as list rows while the others are card grids,
+/// so cards take priority and rows cover the remainder.
+List<Map<String, dynamic>> parseLibraryResponse(dynamic root) {
+  final items = <Map<String, dynamic>>[];
+  for (final card in findAllRenderers(root, mtrir)) {
+    final entry = _libraryCardItem(card);
+    if (entry != null) items.add(entry);
+  }
+  if (items.isNotEmpty) return items;
+  for (final row in findAllRenderers(root, mrlir)) {
+    final entry = _libraryRowItem(row);
+    if (entry != null) items.add(entry);
   }
   return items;
 }

@@ -377,3 +377,211 @@ Built the approved plan end to end. All work on `main`, uncommitted.
 - `flutter analyze lib`: only pre-existing deprecation/experimental
   infos (RadioGroup/onReorder/LockCachingAudioSource) — zero issues in
   touched files.
+
+### Environment / process notes (2026-10-21, same session)
+- Dependencies: `flutter_inappwebview: ^6.1.5` added to pubspec
+  (an earlier insert briefly broke the `flutter:` YAML block
+  indentation and was fixed); `flutter pub get` clean. The 6.1.5
+  family ships android/ios/macos/windows/web but **no Linux package**,
+  which is exactly why the desktop sign-in path is the paste dialog.
+  Flutter 3.47.5 toolchain; pub get shows one pre-existing
+  `discontinued` warning unrelated to this work.
+- Editing incident, kept for the record: an anchor mismatch while
+  inserting `parseLibraryGrid` briefly consumed the `parseVideo`
+  function header in nav_parser.dart (its body was left orphaned);
+  noticed on `rg` verification in the same step and restored. Lesson:
+  verify a diff that touched shared anchors with a symbol grep before
+  running analyze.
+- Everything remains uncommitted on `main` per the no-commit rule;
+  user has not asked for a commit yet.
+
+---
+
+## Follow-up (2026-10-21): "linked OK but no personalization" — root cause + fix
+
+### Root cause 1 (primary) — anonymous consent cookie collided with the auth jar
+`MusicServices._headers` ships a hardcoded `"cookie": "CONSENT=YES+1; PREF=gl=US&hl=en"`
+(lowercase). The first auth injection added a second `Cookie:` entry (capitalized), so the
+per-request map contained BOTH. Dart maps are case-sensitive, dio forwards both adds, and the
+`HttpHeaders` stack folds same-name values into ONE comma-joined `Cookie` header — invalid
+cookie syntax. YouTube parsed only the consent crumbs and answered every request as
+anonymous: linking succeeded, the tile flipped, but the home feed stayed generic,
+`getLibraryShelf` browses returned empty (guest view of library pages → sections hid).
+
+Fix in `_sendRequest`: start from `Map.from(_headers)` and REPLACE the anonymous jar with
+`headers['cookie'] = auth jar` (same lowercase key) plus `headers['authorization'] =
+sapisidHash(sapisid)`. No merging, no duplicate names.
+
+### Root cause 2 (library shelves) — fixed-path shelf probing was too brittle
+The original `getLibraryShelf` looked for `musicPlaylistShelfRenderer` under two fixed paths
+and pulled items + continuations from that shelf object. ryotunes (whose live library
+endpoint works in production) instead:
+- deep-scans the whole response tree for the FIRST `musicPlaylistShelfRenderer` (fallback
+  `musicShelfRenderer`) and collects ALL renderer objects across the tree — the library
+  layout differs per surface, and library artists arrive as list ROWS, not cards;
+- takes the paging token from ANYWHERE in the response (modern `continuationCommand.token`,
+  legacy `nextContinuationData.continuation`), re-POSTing `browse` with `&ctoken=…&continuation=…`,
+  stopping on an empty page or unchanged token (some grids ship spurious tokens);
+- pages to a cap (grids hand out ~25 items per round trip; the cap prevents infinite spin on
+  an unresolved token).
+
+Sonara now mirrors that: `getLibraryShelf` keeps only browseId + paged parsing; new
+`nav_parser` helpers `findFirstRenderer`, `findAllRenderers`, `parseLibraryResponse(root)`
+(sweep cards `musicTwoRowItemRenderer`, fall back to rows `musicResponsiveListItemRenderer`),
+and `_firstContinuationToken` (first whole-tree paging token). `parseLibraryGrid` stays for
+wrapper-shaped fixtures/tests.
+
+### Row pageType path bug found the same hour (unit-test caught)
+Library row kind detection previously appended `…flexColumns[+1].renderer` + `runs.0` + browse
+pageType — but flex column runs live under a `text` key (renderer.text.runs). Correct chain is
+`flexColumns[1].musicResponsiveListItemFlexColumnRenderer` + `text_run` (`['text','runs',0]`) +
+`navigation_browse` + `page_type`. Fixed in `_libraryRowItem`; regression tests added.
+
+### Verification
+- `test/yt_account_test.dart` grows to 7 tests: original 5 + parseLibraryResponse deep-scan
+  (cards in arbitrary layout, top-level endpoint fallback) + list-rows fallback (kind/id/title).
+- Full suite: 386 passed, 1 pre-existing skip. `flutter analyze lib` unchanged (13
+  pre-existing deprecation/experimental infos).
+- Row debugging lesson, now logged: flex-column pageType probes MUST go through `text_run`;
+  a raw `runs` key look-up only exists in `musicResponsiveHeader...`, not in flex columns.
+- Consistency note: mediaItem mirror taps + liked-songs merge continue to use pre-existing
+  screens; nothing else needed re-wiring once headers were fixed.
+
+### Triage recap + change scope
+Symptom was confirmed with the user as "linked OK but no personalization" (tile flipped,
+webview capture fine, home feed generic, no YT sections). Diagnosis path: compared
+ryotunes transport.rs per-request headers with Sonara's `_sendRequest`, found the
+lowercase `cookie` (anonymous consent) vs capitalized `Cookie` (auth jar) duplicate; then,
+after fixing that, hardened the shelf fetch to ryotunes' whole-tree scan because the
+personalization fix alone would have left library artists (row-shaped shelves) invisible.
+
+Files touched by this fix-up (all uncommitted, same `main`):
+- `lib/services/music_service.dart` — `_sendRequest` header composition (replace, not add)
+  and `getLibraryShelf`/`_firstContinuationToken` rewrite; `_ytAccount()` unchanged.
+- `lib/services/nav_parser.dart` — shared `_libraryCardItem`/`_libraryRowItem` mappers,
+  `findFirstRenderer`, `findAllRenderers`, `parseLibraryResponse`; `parseLibraryGrid`
+  retained for wrapper fixtures only; row pageType path fixed via `text_run`.
+- `test/yt_account_test.dart` — 7 tests (added parseLibraryResponse deep-scan + rows fallback).
+- No changes needed in `YtAccountService`, login UI, settings tile, or `YtLibraryController`
+  — the symptom was entirely request-layer.
+
+### Open questions / pending manual verification
+- Re-link on a device and confirm: home feed personalizes immediately after link; the three
+  Library YT sections populate; "Import liked songs to Favorites" merges `LM` into `LIBFAV`
+  and pushes to cloud.
+- If the artists shelf alone stays empty, verify the browseId
+  `FEmusic_library_corpus_track_artists` layout (rows in a `musicShelfRenderer` are handled;
+  log the shelf response with printINFO if it still hides).
+- Cookie expiry is not yet detected proactively — a stale jar will silently personalize to
+  anonymous again. Consider a re-login prompt when a personalized browse returns
+  zero-auth-shaped data (future hardening).
+
+---
+
+## Follow-up 2 (2026-10-21): saved playlists empty, everything else works
+
+User report after re-linking: liked-songs import works, covers load, but the YT
+playlists section renders nothing. Cause found in the card mapper — the same one
+that classifies albums/artists correctly:
+
+`_libraryCardItem` read ONLY `navigationEndpoint.browseEndpoint.browseId`, but
+cards in the signed-in `FEmusic_liked_playlists` grid navigate through
+`navigationEndpoint.watchPlaylistEndpoint.playlistId` (saved playlists and a few
+carousels do this; ryotunes' `parse_two_row_item` has an explicit branch there,
+even adding the `VL` prefix itself). With no browseEndpoint the mapper returned
+None → the playlist shelf deep-scan found zero cards → section hidden. Albums
+(MPRE) and artists (UC, rows) still parsed, matching the report exactly.
+
+Fixes:
+- `_libraryCardItem` now mirrors the reference's three navigation routes in the
+  same order: `watchEndpoint.videoId` → kind track; `watchPlaylistEndpoint.
+  playlistId` → playlist (VL-prefixed when missing); else `browseEndpoint`
+  (MPLA prefix stripped, kind fallback from browseId prefix rules MPRE/VLMPRE
+  album, UC artist, else playlist) when pageType came back generic.
+- `openYtItem` routes album-kind mirror cards to `ScreenNavigationSetup.
+  albumScreen` (arguments `[null, id]`) instead of the playlist screen, since
+  `openPlaylistOrAlbum` only branches to the album screen for `OLAK5uy_…` ids;
+  MPRE browse pages otherwise get `VL`-prefixed into playlistScreen and show
+  no tracks.
+- Two regression tests: watchPlaylistEndpoint saved-playlist (VLPLWPE001) and
+  track/MPLA-artist classification.
+
+Verification: 9/9 yt tests, full suite 388 passed / 1 pre-existing skip,
+`flutter analyze lib` unchanged (13 pre-existing infos).
+
+---
+
+## Follow-up 3 (2026-10-21): mirror playlists open but show "empty playlist"
+
+Report: the liked-videos entry opens with tracks; the other saved playlists
+
+open a page that loads its cover/title but ends in Sonara's "empty playlist"
+
+placeholder state.
+
+How the placeholder state arises (playlist_screen_controller): for id-only
+
+taps, `isContentFetched` flips true BEFORE the un-awaited online fetch; if
+
+`getPlaylistOrAlbumSongs` crashes asynchronously, `songList` stays empty → the
+
+screen renders the "emptyPlaylist" text, while the cover that individual cards
+
+show in the mirror grid still loads from the mirror item map. So a header/count
+
+crash on saved-playlist pages reproduces the exact symptom.
+
+Why saved-playlist pages would crash while `LM` (liked music) works: for LM the
+
+response uses the shapes the original fixed paths were written against (detail
+
+header + `musicPlaylistShelfRenderer` + full `secondSubtitle` runs). Saved and
+
+owned playlist pages at WEB_REMIX return `musicResponsiveHeaderRenderer`
+
+(another nesting), sometimes single-column layout, and owned pages have
+
+different subtitle/secondSubtitle run layouts — the old code indexed
+
+`header['subtitle']['runs']` and `header['secondSubtitle']['runs']...`
+
+UNconditionally and `nav(...)` fixed two-col/tabs shelf paths, so any layout
+
+drift threw inside the fetch.
+
+Fix in `getPlaylistOrAlbumSongs` (playlist branch only):
+
+- header located with layout-agnostic sweep: first `musicResponsiveHeader
+
+  Renderer` anywhere, fallback first `musicDetailHeaderRenderer`
+
+  (matches ryotunes `playlist_header`);
+
+- track shelf = first `musicPlaylistShelfRenderer` in the tree, fallback
+
+  first `musicShelfRenderer`, instead of the two fixed nav paths;
+
+- title/thumbnails/description/author/year only assigned when header exists;
+
+- song count + duration: kept the secondSubtitle formula but hardened —
+
+  try/catch around the run arithmetic, and when `secondSubtitle` is missing
+
+  count is recovered from subtitle runs matching `<N> songs`;
+- `playlist['tracks']` is always parsed from the shelf `contents` (previously
+
+  skipped entirely when `songCount == 0`, which also blanked playlists whose
+
+  count runs were odd), and pages to the end via `getContinuationsPlaylist`
+
+  only while `songCount > currentTrackCount` with the shelf cast to
+
+  `Map<String,dynamic>` for the token walk.
+
+Regression net: full suite 388 passed / 1 pre-existing skip; `flutter analyze
+
+lib` unchanged (13 pre-existing infos). Unit-test-worthy follow-up: fixtures for
+
+`musicResponsiveHeaderRenderer` without secondSubtitle (owned page) — flagged,
+
+not blocking, since the crash path is now null-tolerant.

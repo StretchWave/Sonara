@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sonara/services/nav_parser.dart';
+import 'package:sonara/services/nav_parser.dart'
+    show parseLibraryGrid, parseLibraryResponse;
 import 'package:sonara/services/ytaccount/yt_account_service.dart';
 
 void main() {
@@ -173,6 +174,157 @@ void main() {
         {'somethingElse': {}},
       ]);
       expect(items, isEmpty);
+    });
+
+    test('parseLibraryResponse parses saved playlists behind watchPlaylistEndpoint',
+        () {
+      final items = parseLibraryResponse({
+        'musicPlaylistShelfRenderer': {
+          'contents': [
+            {
+              'musicTwoRowItemRenderer': {
+                'title': {'runs': [
+                  {'text': 'Saved list'}
+                ]},
+                'navigationEndpoint': {
+                  'watchPlaylistEndpoint': {'playlistId': 'PLWPE001'}
+                },
+                'subtitle': {'runs': [{'text': 'Playlist · 5 songs'}]}
+              }
+            }
+          ]
+        }
+      });
+      expect(items.length, 1);
+      expect(items[0]['kind'], 'playlist');
+      expect(items[0]['id'], 'VLPLWPE001');
+    });
+
+    test('parseLibraryResponse classifies track cards and MPLA artist pages',
+        () {
+      final items = parseLibraryResponse({
+        'musicPlaylistShelfRenderer': {
+          'contents': [
+            {
+              'musicTwoRowItemRenderer': {
+                'title': {'runs': [
+                  {'text': 'A song card'}
+                ]},
+                'navigationEndpoint': {
+                  'watchEndpoint': {'videoId': 'dQw4w9WgXcQ'}
+                }
+              }
+            },
+            {
+              'musicTwoRowItemRenderer': {
+                'title': {'runs': [
+                  {'text': 'Library artist'}
+                ]},
+                'navigationEndpoint': {
+                  'browseEndpoint': {'browseId': 'MPLAUC123'}
+                }
+              }
+            }
+          ]
+        }
+      });
+      expect(items.length, 2);
+      expect(items[0]['kind'], 'track');
+      expect(items[0]['id'], 'dQw4w9WgXcQ');
+      expect(items[1]['kind'], 'artist');
+      expect(items[1]['id'], 'UC123');
+    });
+
+    test('parseLibraryResponse deep-scans cards regardless of shelf layout',
+        () {
+      final items = parseLibraryResponse({
+        'contents': {
+          'someWrapperWeDidNotPunycode': {
+            'contents': [
+              {
+                'musicTwoRowItemRenderer': {
+                  'title': {
+                    'runs': [
+                      {
+                        'text': 'Deep card',
+                        'navigationEndpoint': {
+                          'browseEndpoint': {
+                            'browseId': 'VLPLDEEP',
+                            'browseEndpointContextSupportedConfigs': {
+                              'browseEndpointContextMusicConfig': {
+                                'pageType': 'MUSIC_PAGE_TYPE_PLAYLIST'
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  'navigationEndpoint': {
+                    'browseEndpoint': {'browseId': 'VLPLDEEP'}
+                  }
+                }
+              }
+            ]
+          }
+        }
+      });
+      expect(items.length, 1);
+      expect(items[0]['id'], 'VLPLDEEP');
+      expect(items[0]['kind'], 'playlist');
+    });
+
+    test('parseLibraryResponse falls back to list rows when no cards', () {
+      final fixture = {
+        'musicShelfRenderer': {
+          'contents': [
+            {
+              'musicResponsiveListItemRenderer': {
+                'flexColumns': [
+                  {
+                    'musicResponsiveListItemFlexColumnRenderer': {
+                      'text': {
+                        'runs': [
+                          {'text': 'Artist row'}
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    'musicResponsiveListItemFlexColumnRenderer': {
+                      'text': {
+                        'runs': [
+                          {
+                            'text': 'Artist',
+                            'navigationEndpoint': {
+                              'browseEndpoint': {
+                                'browseId': 'UCROW',
+                                'browseEndpointContextSupportedConfigs': {
+                                  'browseEndpointContextMusicConfig': {
+                                    'pageType': 'MUSIC_PAGE_TYPE_ARTIST'
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                'navigationEndpoint': {
+                  'browseEndpoint': {'browseId': 'UCROW'}
+                }
+              }
+            }
+          ]
+        }
+      };
+      final items = parseLibraryResponse(fixture);
+      expect(items.length, 1);
+      expect(items[0]['kind'], 'artist');
+      expect(items[0]['id'], 'UCROW');
+      expect(items[0]['title'], 'Artist row');
     });
   });
 }
