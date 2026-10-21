@@ -9,11 +9,13 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 
 import '../../../utils/house_keeping.dart';
+import '/utils/app_link_controller.dart';
 import '../../widgets/add_to_playlist.dart';
 import '/ui/widgets/sort_widget.dart';
 import '../Settings/settings_screen_controller.dart';
 import '/services/piped_service.dart';
 import '/services/music_service.dart';
+import '/services/ytaccount/yt_account_service.dart';
 import '../../../utils/helper.dart';
 import '/models/album.dart';
 import '/models/artist.dart';
@@ -917,5 +919,116 @@ class LibraryArtistsController extends GetxController {
   void onSearchClose(String? tag) {
     libraryArtists.value = tempListContainer.toList();
     tempListContainer.clear();
+  }
+}
+
+/// Mirror of the signed-in YouTube Music library (liked playlists /
+/// albums / artists) — read-only views that a user copies into the local
+/// library on demand, never the other way around.
+class YtLibraryController extends GetxController {
+  final ytPlaylists = <Map<String, dynamic>>[].obs;
+  final ytAlbums = <Map<String, dynamic>>[].obs;
+  final ytArtists = <Map<String, dynamic>>[].obs;
+  final isYtFetched = false.obs;
+  final isFavouriteImporting = false.obs;
+
+  @override
+  void onInit() {
+    super.onInit();
+    final account = Get.find<YtAccountService>();
+    ever(account.isLoggedIn, (_) => refetch());
+    refetch();
+  }
+
+  Future<void> refetch() async {
+    final account = Get.find<YtAccountService>();
+    final music = Get.find<MusicServices>();
+    if (account.isLoggedIn.isFalse) {
+      ytPlaylists.clear();
+      ytAlbums.clear();
+      ytArtists.clear();
+      isYtFetched.value = true;
+      return;
+    }
+    isYtFetched.value = false;
+    await _mirror('playlist', music.getLibraryPlaylists);
+    await _mirror('album', music.getLibraryAlbums);
+    await _mirror('artist', music.getLibraryArtists);
+    isYtFetched.value = true;
+  }
+
+  Future<void> _mirror(String kind,
+      Future<List<Map<String, dynamic>>> Function() fetch) async {
+    final list = switch (kind) {
+      'album' => ytAlbums,
+      'artist' => ytArtists,
+      _ => ytPlaylists,
+    };
+    try {
+      list.value = await fetch();
+    } catch (e) {
+      printINFO("YT Library $kind fetch failed: $e");
+    }
+  }
+
+  void openYtItem(Map<String, dynamic> item) {
+    final id = item['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final appLink = Get.find<AppLinksController>();
+    if (item['kind'] == 'artist') {
+      appLink.openArtist(id);
+    } else {
+      appLink.openPlaylistOrAlbum(id);
+    }
+  }
+
+  /// Merges YT Music liked songs (the implicit `LM` playlist) into the
+  /// local LIBFAV stage; dedupes by song id, then pushes deltas to cloud.
+  Future<void> mergeLikedSongsToFavourites() async {
+    if (isFavouriteImporting.value) return;
+    if (Get.find<YtAccountService>().isLoggedIn.isFalse) return;
+    isFavouriteImporting.value = true;
+    final context = Get.context!;
+    try {
+      final content =
+          await Get.find<MusicServices>().getLikedSongs(limit: 3000);
+      final tracks = ((content['tracks'] ?? []) as List)
+          .whereType<MediaItem>()
+          .toList();
+      if (tracks.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              snackbar(context, "noBookmarks".tr, size: SanckBarSize.MEDIUM));
+        }
+        return;
+      }
+      final favBox = await Hive.openBox('LIBFAV');
+      var added = 0;
+      for (final track in tracks) {
+        if (!favBox.containsKey(track.id)) {
+          await favBox.put(track.id, MediaItemBuilder.toJson(track));
+          added++;
+        }
+      }
+      await favBox.close();
+
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        await Get.find<PlaylistSyncService>().syncAllFavoritesFromLocal();
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(snackbar(context,
+            "${"playlistImportedMsg".tr}: $added ${"libSongs".tr}",
+            size: SanckBarSize.MEDIUM));
+      }
+    } catch (e) {
+      printERROR("Error merging YT liked songs: $e");
+      if (Get.context!.mounted) {
+        ScaffoldMessenger.of(Get.context!).showSnackBar(
+            snackbar(Get.context!, "importError".tr,
+                size: SanckBarSize.MEDIUM));
+      }
+    } finally {
+      isFavouriteImporting.value = false;
+    }
   }
 }
