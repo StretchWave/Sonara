@@ -13,6 +13,7 @@ import '../../widgets/add_to_playlist.dart';
 import '/ui/widgets/sort_widget.dart';
 import '../Settings/settings_screen_controller.dart';
 import '/services/piped_service.dart';
+import '/services/music_service.dart';
 import '../../../utils/helper.dart';
 import '/models/album.dart';
 import '/models/artist.dart';
@@ -249,6 +250,7 @@ class LibraryPlaylistsController extends GetxController
   // Add these RxBool to track import progress
   final isImporting = false.obs;
   final importProgress = 0.0.obs;
+  final importUrlInputController = TextEditingController();
 
   @override
   void onInit() {
@@ -474,6 +476,7 @@ class LibraryPlaylistsController extends GetxController
   @override
   void dispose() {
     textInputController.dispose();
+    importUrlInputController.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -604,6 +607,183 @@ class LibraryPlaylistsController extends GetxController
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             snackbar(context, errorMsg, size: SanckBarSize.MEDIUM));
+      }
+    } finally {
+      isImporting.value = false;
+      importProgress.value = 0.0;
+    }
+  }
+
+  /// Extracts a YouTube / YouTube Music playlist or album ID from a pasted
+  /// URL (youtube.com/playlist?list=..., music.youtube.com, watch?..&list=)
+  /// or from a bare playlist ID (PL..., VLPL..., OLAK5uy_...).
+  String? parseYtPlaylistIdFromInput(String input) {
+    final text = input.trim();
+    if (text.isEmpty) return null;
+    final listParam = RegExp('list=([A-Za-z0-9_-]+)').firstMatch(text);
+    if (listParam != null) return listParam.group(1);
+    final bare =
+        RegExp(r'^(?:VL)?(?:PL|OLAK5uy_|FL|LL|RD|UL|UU|LU|SM)[A-Za-z0-9_-]+$')
+            .firstMatch(text);
+    if (bare != null) return text;
+    return null;
+  }
+
+  /// Imports a YouTube Music playlist into the local library from a pasted
+  /// URL or playlist ID. Uses the same innertube fetch the playlist screen
+  /// uses ([MusicServices.getPlaylistOrAlbumSongs]), stores the new playlist
+  /// in `LibraryPlaylists` + per-track box, and uploads it to Supabase cloud
+  /// backup when signed in.
+  Future<void> importPlaylistFromYtMusic(BuildContext context) async {
+    importUrlInputController.clear();
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        title: Text(
+          "importPlaylistYt".tr,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "importPlaylistYtDesc".tr,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: importUrlInputController,
+              decoration: InputDecoration(
+                hintText: "importPlaylistYtUrlHint".tr,
+                filled: true,
+                fillColor: Theme.of(context).primaryColorLight,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.secondary,
+            ),
+            onPressed: () => Get.back(result: false),
+            child: Text("close".tr),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.secondary,
+              foregroundColor: Theme.of(context).colorScheme.onSecondary,
+            ),
+            onPressed: () => Get.back(result: true),
+            child: Text("importPlaylist".tr),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final playlistId = parseYtPlaylistIdFromInput(
+      importUrlInputController.text.trim(),
+    );
+    if (playlistId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        snackbar(context, "notaValidLink".tr, size: SanckBarSize.MEDIUM),
+      );
+      return;
+    }
+
+    isImporting.value = true;
+    importProgress.value = 0.1;
+    if (context.mounted) {
+      _showImportProgressDialog(context);
+    }
+
+    try {
+      importProgress.value = 0.3;
+      final content = playlistId.contains("OLAK5uy")
+          ? await Get.find<MusicServices>()
+              .getPlaylistOrAlbumSongs(albumId: playlistId)
+          : await Get.find<MusicServices>()
+              .getPlaylistOrAlbumSongs(playlistId: playlistId);
+
+      final tracks =
+          ((content['tracks'] ?? []) as List).whereType<MediaItem>().toList();
+      if (tracks.isEmpty) {
+        throw StateError("No tracks found for playlist $playlistId");
+      }
+
+      final newPlaylistId = "LIB${DateTime.now().millisecondsSinceEpoch}";
+      final thumbsRaw = content['thumbnails'];
+      String thumbUrl = Playlist.thumbPlaceholderUrl;
+      if (thumbsRaw is List && thumbsRaw.isNotEmpty) {
+        final url = thumbsRaw[0]?['url'];
+        if (url is String && url.isNotEmpty) thumbUrl = url;
+      }
+
+      final newPlaylist = Playlist(
+        title: (content['title'] ?? 'YT Playlist').toString(),
+        playlistId: newPlaylistId,
+        thumbnailUrl: thumbUrl,
+        description: (content['description'] ?? "importedPlaylist".tr)
+            .toString(),
+        isCloudPlaylist: false,
+        songCount: "${tracks.length}",
+      );
+      importProgress.value = 0.6;
+
+      final box = await Hive.openBox("LibraryPlaylists");
+      await box.put(newPlaylistId, newPlaylist.toJson());
+      importProgress.value = 0.7;
+
+      final songsBox = await Hive.openBox(newPlaylistId);
+      for (int i = 0; i < tracks.length; i++) {
+        await songsBox.put(i, MediaItemBuilder.toJson(tracks[i]));
+        importProgress.value = 0.7 + (0.25 * (i + 1) / tracks.length);
+      }
+      await songsBox.close();
+      await box.close();
+      importProgress.value = 1.0;
+
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+
+      refreshLib();
+
+      if (Get.isRegistered<PlaylistSyncService>()) {
+        Get.find<PlaylistSyncService>().uploadNewPlaylist(newPlaylist, tracks);
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          snackbar(
+            context,
+            "${"playlistImportedMsg".tr}: ${newPlaylist.title}",
+            size: SanckBarSize.MEDIUM,
+          ),
+        );
+      }
+    } catch (e) {
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+      printERROR("Error importing YT Music playlist: $e");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          snackbar(context, "importError".tr, size: SanckBarSize.MEDIUM),
+        );
       }
     } finally {
       isImporting.value = false;

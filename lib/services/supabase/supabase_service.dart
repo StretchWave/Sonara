@@ -142,10 +142,16 @@ class SupabaseService extends GetxService {
       final user = session.user;
       final isAnon = user.isAnonymous;
       if (user.email != null || isAnon) {
-        isLoggedIn.value = true;
+        // CRITICAL ORDERING: userId must be set BEFORE isLoggedIn flips to
+        // true. GetX `ever`/worker subscribers fire synchronously on the
+        // isLoggedIn transition; PlaylistSyncService.syncAll() and the
+        // onboarding resume flow both read userId at that moment, so setting
+        // it last would make every login listener see an empty userId and
+        // silently skip the initial playlist sync / cloud pref load.
         isAnonymous.value = isAnon;
         userEmail.value = user.email ?? (isAnon ? 'Anonymous Guest' : '');
         userId.value = user.id;
+        isLoggedIn.value = true;
         isAuthenticating.value = false;
         authErrorMessage.value = '';
         return;

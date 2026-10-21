@@ -47,6 +47,14 @@ class PlaylistSyncService extends GetxService {
       }
     });
 
+    // A session can be restored from storage during SupabaseService.onInit,
+    // which runs before this listener is registered — the isLoggedIn
+    // transition is then missed and no initial sync would ever run. Sync
+    // directly if we are already authenticated at construction time.
+    if (_canSync()) {
+      syncAll();
+    }
+
     // Load last synced timestamp from AppPrefs if available
     try {
       final prefs = Hive.box("AppPrefs");

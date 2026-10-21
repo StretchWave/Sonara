@@ -129,6 +129,27 @@ class SortWidget extends StatelessWidget {
                 },
               ),
             ),
+            const SizedBox(height: 12),
+            Center(
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.secondary,
+                  foregroundColor: Theme.of(context).colorScheme.onSecondary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: const Icon(Icons.music_note),
+                label: Text("importPlaylistYt".tr),
+                onPressed: () {
+                  Navigator.pop(context);
+                  Get.find<LibraryPlaylistsController>()
+                      .importPlaylistFromYtMusic(context);
+                },
+              ),
+            ),
           ],
         ),
         actions: [
