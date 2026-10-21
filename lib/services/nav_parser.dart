@@ -192,6 +192,77 @@ List<Map<String, dynamic>> parseMixedContent(List<dynamic> rows) {
   return items;
 }
 
+/// Normalizes a signed-in YT Music library grid response into flat mirror
+/// items suitable for the Library UI: kind playlist/album/artist/track.
+List<Map<String, dynamic>> parseLibraryGrid(List<dynamic> contents) {
+  final items = <Map<String, dynamic>>[];
+  for (var item in contents) {
+    if (item is! Map) continue;
+    String _kindFromPageType(dynamic type) {
+      final t = type?.toString().toLowerCase() ?? '';
+      if (t.contains('album')) return 'album';
+      if (t.contains('artist')) return 'artist';
+      if (t.contains('track') || t.contains('video')) return 'track';
+      return 'playlist';
+    }
+
+    String? _thumbFrom(dynamic list) {
+      if (list is List && list.isNotEmpty) {
+        final url = list[0]?['url'];
+        if (url is String && url.isNotEmpty) return url;
+      }
+      return null;
+    }
+
+    Map? data = nav(item, [mtrir]);
+    if (data != null) {
+      final id = nav(data, navigation_browse_id) ??
+          nav(data, n_title + navigation_browse_id);
+      if (id == null) continue;
+      items.add({
+        'kind': _kindFromPageType(
+            nav(data, n_title + navigation_browse + page_type,
+                noneIfAbsent: true, funName: 'libGridCard')),
+        'id': id.toString(),
+        'title': nav(data, title_text) ?? '',
+        'subtitle': nav(data, subtitle) is String ? nav(data, subtitle) : '',
+        'thumbnailUrl': _thumbFrom(nav(data, thumbnail_renderer)) ?? '',
+      });
+      continue;
+    }
+
+    data = nav(item, [mrlir]);
+    if (data != null) {
+      final id = nav(data, navigation_browse_id);
+      if (id == null) continue;
+      final flex = getFlexColumnItem(data.cast<String, dynamic>(), 0);
+      final flexSecond =
+          getFlexColumnItem(data.cast<String, dynamic>(), 1);
+      items.add({
+        'kind': _kindFromPageType(nav(
+            data,
+            [
+              'flexColumns',
+              1,
+              'musicResponsiveListItemFlexColumnRenderer',
+              'runs',
+              0
+            ] +
+                navigation_browse +
+                page_type,
+            noneIfAbsent: true,
+            funName: 'libGridRow')),
+        'id': id.toString(),
+        'title': nav(flex, text_run_text) ?? '',
+        'subtitle': nav(flexSecond, text_run_text) ?? '',
+        'thumbnailUrl':
+            _thumbFrom(nav(data, thumbnails)) ?? _thumbFrom(nav(data, thumbnail)) ?? '',
+      });
+    }
+  }
+  return items;
+}
+
 dynamic parseVideo(dynamic result) {
   final runs = nav(result, ['subtitle', 'runs']);
   final runsLength = runs.length;

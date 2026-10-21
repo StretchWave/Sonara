@@ -18,6 +18,7 @@ import '../Library/library_controller.dart';
 import '../../widgets/snackbar.dart';
 import '/ui/widgets/link_piped.dart';
 import '/services/music_service.dart';
+import '/services/ytaccount/yt_account_service.dart';
 import '/ui/player/player_controller.dart';
 import '/ui/utils/theme_controller.dart';
 import 'components/custom_expansion_tile.dart';
@@ -25,6 +26,7 @@ import 'components/provider_health_screen.dart';
 import 'components/configure_sources_screen.dart';
 import 'components/cloud_sync_tile.dart';
 import 'settings_screen_controller.dart';
+import 'yt_login_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.isBottomNavActive = false});
@@ -335,6 +337,43 @@ class SettingsScreen extends StatelessWidget {
                             }
                           }),
                     ),
+                    Obx(() {
+                      final ytAccount = Get.find<YtAccountService>();
+                      return ListTile(
+                        contentPadding:
+                            const EdgeInsets.only(left: 5, right: 10, top: 0),
+                        title: Text("ytAccount".tr),
+                        subtitle: Text("ytAccountDes".tr,
+                            style: Theme.of(context).textTheme.bodyMedium),
+                        trailing: TextButton(
+                            child: Text(
+                              ytAccount.isLoggedIn.value
+                                  ? "unLink".tr
+                                  : "link".tr,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium!
+                                  .copyWith(fontSize: 15),
+                            ),
+                            onPressed: () async {
+                              if (ytAccount.isLoggedIn.isFalse) {
+                                if (GetPlatform.isWeb ||
+                                    GetPlatform.isMobile) {
+                                  await Get.to(() => const YtLoginScreen());
+                                } else {
+                                  showYtPasteCookiesDialog(context);
+                                }
+                              } else {
+                                ytAccount.signOut();
+                                ScaffoldMessenger.of(Get.context!)
+                                    .showSnackBar(snackbar(
+                                        Get.context!,
+                                        "ytAccountUnlinked".tr,
+                                        size: SanckBarSize.MEDIUM));
+                              }
+                            }),
+                      );
+                    }),
                     Obx(() => (settingsController.isLinkedWithPiped.isTrue)
                         ? ListTile(
                             contentPadding: const EdgeInsets.only(
